@@ -26,6 +26,8 @@ import {
   ScrollText,
   Key,
   X,
+  LogOut,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useFlowDesk } from "@/lib/store";
@@ -37,7 +39,7 @@ interface SidebarProps {
 
 export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
-  const { contacts, tasks, automations, currentUser } = useFlowDesk();
+  const { contacts, tasks, automations, currentUser, organization, logout } = useFlowDesk();
 
   const activeAutomationsCount = automations.filter((a) => a.status === "ACTIVE").length;
   const pendingTasksCount = tasks.filter((t) => t.status === "PENDING").length;
@@ -49,16 +51,24 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
   const leadsLabel = isAdmin ? "All Leads" : isManager ? "Team Leads" : "My Leads";
   const tasksLabel = isAdmin ? "All Tasks" : isManager ? "Team Tasks" : "My Follow-ups";
 
-  const mainNavItems = [
+  interface NavItem {
+    label: string;
+    href: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge?: number | string;
+    badgeVariant?: "success" | "purple" | "warning" | "default";
+  }
+
+  const mainNavItems: NavItem[] = [
     { label: "Overview", href: "/", icon: LayoutDashboard },
     { label: leadsLabel, href: "/contacts", icon: Users, badge: contacts.length },
     { label: "Lead Folders & Lists", href: "/contacts/lists", icon: FolderKanban },
     { label: "Leads Pipeline", href: "/leads", icon: Target },
-    { label: "Conversations", href: "/conversations", icon: MessageSquare, badge: "3 New", badgeVariant: "success" as const },
+    { label: "Conversations", href: "/conversations", icon: MessageSquare },
     { label: "Campaigns", href: "/campaigns", icon: Megaphone },
-    { label: "Automations", href: "/automations", icon: Zap, badge: `${activeAutomationsCount} Live`, badgeVariant: "purple" as const },
+    { label: "Automations", href: "/automations", icon: Zap, badge: `${activeAutomationsCount} Live`, badgeVariant: "purple" },
     { label: "Events", href: "/events", icon: Calendar },
-    { label: tasksLabel, href: "/tasks", icon: CheckSquare, badge: pendingTasksCount, badgeVariant: "warning" as const },
+    { label: tasksLabel, href: "/tasks", icon: CheckSquare, badge: pendingTasksCount > 0 ? pendingTasksCount : undefined, badgeVariant: "warning" },
     { label: "Analytics", href: "/analytics", icon: TrendingUp },
   ];
 
@@ -89,17 +99,19 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
           isMobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0"
         )}
       >
-        {/* Brand Header */}
+        {/* Dynamic Agency Brand Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between dark:border-slate-800">
-          <Link href="/" onClick={onCloseMobile} className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-sm shadow-indigo-200">
-              <Sparkles className="h-5 w-5" />
+          <Link href="/" onClick={onCloseMobile} className="flex items-center gap-2.5 min-w-0">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-sm shadow-indigo-200 shrink-0">
+              <Building2 className="h-5 w-5" />
             </div>
-            <div>
-              <span className="font-bold text-slate-900 text-base tracking-tight flex items-center gap-1.5 dark:text-white">
-                FlowDesk <span className="text-xs bg-indigo-50 text-indigo-700 font-semibold px-1.5 py-0.5 rounded-md dark:bg-indigo-950 dark:text-indigo-300">AI</span>
+            <div className="min-w-0">
+              <span className="font-bold text-slate-900 text-sm tracking-tight truncate block dark:text-white">
+                {organization?.name || "FlowDesk AI"}
               </span>
-              <p className="text-[11px] text-slate-400 leading-none mt-0.5">Marketing Automation</p>
+              <p className="text-[10px] text-indigo-600 font-semibold uppercase tracking-wider leading-none mt-0.5">
+                {organization?.industry || "Agency Workspace"}
+              </p>
             </div>
           </Link>
 
@@ -156,7 +168,7 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
                   />
                   <span>{item.label}</span>
                 </div>
-                {item.badge && (
+                {item.badge !== undefined && (
                   <span
                     className={cn(
                       "text-[10px] font-semibold px-2 py-0.5 rounded-full",
@@ -217,8 +229,8 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
 
         {/* User Footer Profile & Active Role Badge */}
         <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between dark:border-slate-800 dark:bg-slate-900/50">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white font-bold text-xs flex items-center justify-center">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white font-bold text-xs flex items-center justify-center shrink-0">
               {currentUser.name.slice(0, 2).toUpperCase()}
             </div>
             <div className="text-left min-w-0">
@@ -230,16 +242,28 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
               </p>
             </div>
           </div>
-          <span
-            className={cn(
-              "text-[9px] font-bold px-1.5 py-0.5 rounded",
-              isAdmin && "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
-              isManager && "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
-              !isAdmin && !isManager && "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-            )}
-          >
-            {currentUser.role === "MAIN_ADMIN" ? "ADMIN" : currentUser.role === "MANAGER" ? "MGR" : "REP"}
-          </span>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span
+              className={cn(
+                "text-[9px] font-bold px-1.5 py-0.5 rounded",
+                isAdmin && "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
+                isManager && "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+                !isAdmin && !isManager && "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+              )}
+            >
+              {currentUser.role === "MAIN_ADMIN" ? "ADMIN" : currentUser.role === "MANAGER" ? "MGR" : "REP"}
+            </span>
+
+            {/* Logout / Switch Agency Button */}
+            <button
+              onClick={logout}
+              title="Sign Out / Switch Agency"
+              className="p-1 text-slate-400 hover:text-rose-600 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       </aside>
     </>

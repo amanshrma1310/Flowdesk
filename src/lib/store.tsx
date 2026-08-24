@@ -1,7 +1,8 @@
 "use client";
 
-import React, { createContext, useContext, useState, useMemo } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
 import {
+  Organization,
   Contact,
   Deal,
   Automation,
@@ -17,27 +18,24 @@ import {
   LeadJourneyStep,
 } from "./types";
 import {
-  MOCK_CONTACTS,
-  MOCK_DEALS,
-  MOCK_AUTOMATIONS,
-  MOCK_TASKS,
-  MOCK_EVENTS,
-  MOCK_CHATS,
-  MOCK_CAMPAIGNS,
-  MOCK_USERS,
   MOCK_CUSTOM_ROLES,
-  MOCK_LEAD_LISTS,
   MOCK_TEMPLATES,
-  MOCK_AUDIT_LOGS,
-  MOCK_LEAD_JOURNEYS,
+  MOCK_AUTOMATIONS,
+  MOCK_EVENTS,
 } from "./mockData";
 import { CleanedContactRow } from "./ai/dataCleaner";
 
 interface FlowDeskStoreContextType {
-  // Current Active User Context (Role Switcher)
+  // Auth & Agency Context
+  isAuthenticated: boolean;
+  organization: Organization | null;
   currentUser: User;
   setCurrentUser: (user: User) => void;
   switchUserRole: (role: "MAIN_ADMIN" | "MANAGER" | "EMPLOYEE") => void;
+  login: (email: string, name?: string) => void;
+  createAgency: (data: { name: string; industry?: string; country?: string; currency?: string }) => void;
+  logout: () => void;
+  resetWorkspace: () => void;
 
   // Raw & RBAC Scoped Collections
   contacts: Contact[];
@@ -55,6 +53,10 @@ interface FlowDeskStoreContextType {
   campaigns: Campaign[];
   users: User[];
   
+  // User Management
+  addManager: (data: { name: string; email: string; department?: string; territory?: string }) => User;
+  addEmployee: (data: { name: string; email: string; role?: string; managerId?: string; department?: string }) => User;
+
   // Actions
   importContacts: (rows: CleanedContactRow[], listName: string) => void;
   updateContact: (id: string, updates: Partial<Contact>) => void;
@@ -98,33 +100,224 @@ interface FlowDeskStoreContextType {
 
 const FlowDeskStoreContext = createContext<FlowDeskStoreContextType | null>(null);
 
+const DEFAULT_ADMIN: User = {
+  id: "usr-admin-1",
+  name: "Admin User",
+  email: "admin@flowdesk.ai",
+  role: "MAIN_ADMIN",
+  customRoleName: "Main Admin",
+  department: "Executive",
+  activeLeadsCount: 0,
+};
+
 export function FlowDeskStoreProvider({ children }: { children: React.ReactNode }) {
-  // State
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]); // Default: Main Admin
-  const [allContacts, setAllContacts] = useState<Contact[]>(MOCK_CONTACTS);
-  const [leadLists, setLeadLists] = useState<LeadList[]>(MOCK_LEAD_LISTS);
+  // Authentication & Organization State
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [organization, setOrganization] = useState<Organization | null>(null);
+
+  // Users State (starts clean with only the Admin when agency is created)
+  const [users, setUsers] = useState<User[]>([DEFAULT_ADMIN]);
+  const [currentUser, setCurrentUser] = useState<User>(DEFAULT_ADMIN);
+
+  // Collections (Clean Initial State)
+  const [allContacts, setAllContacts] = useState<Contact[]>([]);
+  const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   const [customRoles, setCustomRoles] = useState<CustomRole[]>(MOCK_CUSTOM_ROLES);
   const [templates, setTemplates] = useState<MessageTemplate[]>(MOCK_TEMPLATES);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(MOCK_AUDIT_LOGS);
-  const [leadJourneys, setLeadJourneys] = useState<Record<string, LeadJourneyStep[]>>(MOCK_LEAD_JOURNEYS);
-  const [deals, setDeals] = useState<Deal[]>(MOCK_DEALS);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [leadJourneys, setLeadJourneys] = useState<Record<string, LeadJourneyStep[]>>({});
+  const [deals, setDeals] = useState<Deal[]>([]);
   const [automations, setAutomations] = useState<Automation[]>(MOCK_AUTOMATIONS);
-  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<EventItem[]>(MOCK_EVENTS);
-  const [chats, setChats] = useState<Record<string, ChatMessage[]>>(MOCK_CHATS);
-  const [campaigns, setCampaigns] = useState<Campaign[]>(MOCK_CAMPAIGNS);
+  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
-  const switchUserRole = (role: "MAIN_ADMIN" | "MANAGER" | "EMPLOYEE") => {
-    if (role === "MAIN_ADMIN") {
-      setCurrentUser(users[0]);
-    } else if (role === "MANAGER") {
-      setCurrentUser(users[1]);
-    } else {
-      setCurrentUser(users[3]);
+  // Load from localStorage if available
+  useEffect(() => {
+    try {
+      const savedAuth = localStorage.getItem("flowdesk_auth");
+      const savedOrg = localStorage.getItem("flowdesk_org");
+      const savedUsers = localStorage.getItem("flowdesk_users");
+      const savedContacts = localStorage.getItem("flowdesk_contacts");
+      const savedLists = localStorage.getItem("flowdesk_lists");
+      const savedLogs = localStorage.getItem("flowdesk_logs");
+
+      if (savedAuth && savedOrg) {
+        setIsAuthenticated(true);
+        const orgObj = JSON.parse(savedOrg);
+        setOrganization(orgObj);
+        
+        if (savedUsers) {
+          const parsedUsers = JSON.parse(savedUsers);
+          setUsers(parsedUsers);
+          setCurrentUser(parsedUsers[0] || DEFAULT_ADMIN);
+        }
+        if (savedContacts) setAllContacts(JSON.parse(savedContacts));
+        if (savedLists) setLeadLists(JSON.parse(savedLists));
+        if (savedLogs) setAuditLogs(JSON.parse(savedLogs));
+      }
+    } catch (e) {
+      console.warn("Storage sync failed:", e);
+    }
+  }, []);
+
+  // Save changes to localStorage
+  const persistState = (org: Organization | null, userList: User[], contactList: Contact[], lists: LeadList[], logs: AuditLog[]) => {
+    try {
+      if (org) {
+        localStorage.setItem("flowdesk_auth", "true");
+        localStorage.setItem("flowdesk_org", JSON.stringify(org));
+        localStorage.setItem("flowdesk_users", JSON.stringify(userList));
+        localStorage.setItem("flowdesk_contacts", JSON.stringify(contactList));
+        localStorage.setItem("flowdesk_lists", JSON.stringify(lists));
+        localStorage.setItem("flowdesk_logs", JSON.stringify(logs));
+      } else {
+        localStorage.removeItem("flowdesk_auth");
+        localStorage.removeItem("flowdesk_org");
+        localStorage.removeItem("flowdesk_users");
+        localStorage.removeItem("flowdesk_contacts");
+        localStorage.removeItem("flowdesk_lists");
+        localStorage.removeItem("flowdesk_logs");
+      }
+    } catch (e) {
+      console.warn("Storage write failed:", e);
     }
   };
 
+  // Login handler
+  const login = (email: string, name: string = "Admin User") => {
+    const adminUser: User = {
+      id: `usr-${Date.now()}`,
+      name: name || "Admin User",
+      email,
+      role: "MAIN_ADMIN",
+      customRoleName: "Main Admin",
+      department: "Executive",
+      activeLeadsCount: 0,
+    };
+    setCurrentUser(adminUser);
+    setUsers([adminUser]);
+  };
+
+  // Create Agency / Organization
+  const createAgency = (data: { name: string; industry?: string; country?: string; currency?: string }) => {
+    const newOrg: Organization = {
+      id: `org-${Date.now()}`,
+      name: data.name,
+      slug: data.name.toLowerCase().replace(/[^a-z0-9]/g, "-"),
+      industry: data.industry || "Marketing & Lead Generation",
+      country: data.country || "India",
+      currency: data.currency || "INR (₹)",
+      timezone: "Asia/Kolkata (IST)",
+      createdAt: new Date().toISOString(),
+      plan: "Business Growth",
+    };
+
+    const initialLog: AuditLog = {
+      id: `log-init-${Date.now()}`,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userRole: "MAIN_ADMIN",
+      action: "CREATED_ORGANIZATION",
+      entityType: "ORGANIZATION",
+      entityName: newOrg.name,
+      details: `Initialized new agency workspace '${newOrg.name}' for industry: ${newOrg.industry}. Clean workspace initialized.`,
+      timestamp: "Just now",
+      ipAddress: "127.0.0.1",
+    };
+
+    setOrganization(newOrg);
+    setIsAuthenticated(true);
+    setAuditLogs([initialLog]);
+    setAllContacts([]);
+    setLeadLists([]);
+    setTasks([]);
+    setDeals([]);
+    setCampaigns([]);
+
+    persistState(newOrg, [currentUser], [], [], [initialLog]);
+  };
+
+  // Logout
+  const logout = () => {
+    setIsAuthenticated(false);
+    setOrganization(null);
+    persistState(null, [], [], [], []);
+  };
+
+  // Reset workspace
+  const resetWorkspace = () => {
+    logout();
+  };
+
+  // Add Manager
+  const addManager = (data: { name: string; email: string; department?: string; territory?: string }): User => {
+    const newMgr: User = {
+      id: `usr-mgr-${Date.now()}`,
+      name: data.name,
+      email: data.email,
+      role: "MANAGER",
+      customRoleName: "Sales Pod Manager",
+      department: data.department || "Sales Pod",
+      territory: data.territory || "National",
+      activeLeadsCount: 0,
+      managedEmployeeIds: [],
+    };
+    const updatedUsers = [...users, newMgr];
+    setUsers(updatedUsers);
+    addAuditLog({
+      action: "CREATED_MANAGER",
+      entityType: "USER",
+      entityName: newMgr.name,
+      details: `Created manager for pod: ${newMgr.department}`,
+    });
+    return newMgr;
+  };
+
+  // Add Employee
+  const addEmployee = (data: { name: string; email: string; role?: string; managerId?: string; department?: string }): User => {
+    const manager = users.find((u) => u.id === data.managerId);
+    const newEmp: User = {
+      id: `usr-emp-${Date.now()}`,
+      name: data.name,
+      email: data.email,
+      role: "EMPLOYEE",
+      customRoleName: data.role || "Sales Representative",
+      managerId: data.managerId,
+      managerName: manager?.name,
+      department: data.department || manager?.department || "Sales Pod",
+      activeLeadsCount: 0,
+    };
+
+    const updatedUsers = users.map((u) => {
+      if (u.id === data.managerId) {
+        return {
+          ...u,
+          managedEmployeeIds: [...(u.managedEmployeeIds || []), newEmp.id],
+        };
+      }
+      return u;
+    });
+
+    const finalUsers = [...updatedUsers, newEmp];
+    setUsers(finalUsers);
+    addAuditLog({
+      action: "CREATED_EMPLOYEE",
+      entityType: "USER",
+      entityName: newEmp.name,
+      details: `Added employee to manager ${manager?.name || "Unassigned"}`,
+    });
+    return newEmp;
+  };
+
+  // Switch role helper for demonstration
+  const switchUserRole = (role: "MAIN_ADMIN" | "MANAGER" | "EMPLOYEE") => {
+    const targetUser = users.find((u) => u.role === role) || users[0];
+    setCurrentUser(targetUser);
+  };
+
+  // Scoped Contacts
   const scopedContacts = useMemo(() => {
     if (currentUser.role === "MAIN_ADMIN") {
       return allContacts;
@@ -136,6 +329,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     }
   }, [allContacts, currentUser]);
 
+  // Scoped Tasks
   const scopedTasks = useMemo(() => {
     if (currentUser.role === "MAIN_ADMIN") {
       return tasks;
@@ -147,6 +341,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     }
   }, [tasks, currentUser]);
 
+  // Audit Logging
   const addAuditLog = (logData: Partial<AuditLog>) => {
     const newLog: AuditLog = {
       id: `log-${Date.now()}`,
@@ -160,9 +355,12 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       timestamp: "Just now",
       ipAddress: "127.0.0.1",
     };
-    setAuditLogs((prev) => [newLog, ...prev]);
+    const updated = [newLog, ...auditLogs];
+    setAuditLogs(updated);
+    persistState(organization, users, allContacts, leadLists, updated);
   };
 
+  // Lead Journey
   const addLeadJourneyStep = (leadId: string, step: Partial<LeadJourneyStep>) => {
     const newStep: LeadJourneyStep = {
       id: `j-${Date.now()}`,
@@ -180,6 +378,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     }));
   };
 
+  // Import contacts
   const importContacts = (rows: CleanedContactRow[], listName: string) => {
     const newListId = `list-${Date.now()}`;
     const newList: LeadList = {
@@ -194,10 +393,12 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       assignedWorkflowName: "Response-Based 360° Follow-up Engine",
     };
 
-    setLeadLists((prev) => [newList, ...prev]);
+    const updatedLists = [newList, ...leadLists];
+    setLeadLists(updatedLists);
 
-    const assignedRep = users[3];
-    const manager = users[1];
+    // Assign to current user or available employee
+    const assignedRep = users.find((u) => u.role === "EMPLOYEE") || currentUser;
+    const manager = users.find((u) => u.role === "MANAGER") || currentUser;
 
     const newContacts: Contact[] = rows.map((row, idx) => {
       const tags = row.tags.map((t, tIdx) => ({ id: `t-${idx}-${tIdx}`, name: t, color: "#3B82F6" }));
@@ -213,7 +414,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         location: row.location,
         source: row.source || "EXCEL_IMPORT",
         status: row.status || "NEW",
-        leadScore: row.leadScore || 65,
+        leadScore: row.leadScore || 70,
         customFields: row.customFields,
         
         createdById: currentUser.id,
@@ -235,7 +436,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       };
     });
 
-    setAllContacts((prev) => [...newContacts, ...prev]);
+    const updatedContacts = [...newContacts, ...allContacts];
+    setAllContacts(updatedContacts);
 
     const newJourneys = { ...leadJourneys };
     newContacts.forEach((c) => {
@@ -277,6 +479,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       entityName: newList.name,
       details: `Imported ${rows.length} contacts into folder '${newList.name}'.`,
     });
+
+    persistState(organization, users, updatedContacts, updatedLists, auditLogs);
   };
 
   const createLeadList = (name: string, description?: string): LeadList => {
@@ -290,14 +494,18 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       leadCount: 0,
       source: "MANUAL",
     };
-    setLeadLists((prev) => [newList, ...prev]);
+    const updated = [newList, ...leadLists];
+    setLeadLists(updated);
+    persistState(organization, users, allContacts, updated, auditLogs);
     return newList;
   };
 
   const updateContact = (id: string, updates: Partial<Contact>) => {
-    setAllContacts((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c))
-    );
+    setAllContacts((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c));
+      persistState(organization, users, updated, leadLists, auditLogs);
+      return updated;
+    });
   };
 
   const addContact = (contactData: Partial<Contact>): Contact => {
@@ -316,8 +524,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       createdByName: currentUser.name,
       ownerId: currentUser.id,
       ownerName: currentUser.name,
-      managerId: currentUser.managerId || "usr-mgr-1",
-      managerName: currentUser.managerName || "Rahul Kumar",
+      managerId: currentUser.managerId || currentUser.id,
+      managerName: currentUser.managerName || currentUser.name,
       
       tags: contactData.tags || [{ id: "t-new", name: "Lead", color: "#3B82F6" }],
       doNotContact: false,
@@ -325,16 +533,22 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       updatedAt: new Date().toISOString(),
     };
 
-    setAllContacts((prev) => [newContact, ...prev]);
+    const updated = [newContact, ...allContacts];
+    setAllContacts(updated);
     addLeadJourneyStep(newContact.id, {
       title: "Lead Created Manually",
       description: `Created and owned by ${currentUser.name}.`,
     });
+    persistState(organization, users, updated, leadLists, auditLogs);
     return newContact;
   };
 
   const deleteContact = (id: string) => {
-    setAllContacts((prev) => prev.filter((c) => c.id !== id));
+    setAllContacts((prev) => {
+      const updated = prev.filter((c) => c.id !== id);
+      persistState(organization, users, updated, leadLists, auditLogs);
+      return updated;
+    });
   };
 
   const toggleDoNotContact = (id: string) => {
@@ -498,8 +712,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     const logs: string[] = [
       `[${new Date().toLocaleTimeString()}] Trigger event 'LEAD_CREATED' received for ${targetContact?.name || "Lead"}`,
       `[${new Date().toLocaleTimeString()}] Safety Check: Verify duplicate enrollment & Do-Not-Contact flag: PASSED`,
-      `[${new Date().toLocaleTimeString()}] Lead assigned to ${targetContact?.ownerName || "Priya Patel"} under Manager ${targetContact?.managerName || "Rahul Kumar"}`,
-      `[${new Date().toLocaleTimeString()}] Official WhatsApp Cloud API: Sent template 'lead_welcome_intro' to ${targetContact?.phone} (Status: DELIVERED)`,
+      `[${new Date().toLocaleTimeString()}] Lead assigned to ${targetContact?.ownerName || currentUser.name}`,
+      `[${new Date().toLocaleTimeString()}] Official WhatsApp Cloud API: Sent template 'lead_welcome_intro' to ${targetContact?.phone || "+91 98765 00000"} (Status: DELIVERED)`,
       `[${new Date().toLocaleTimeString()}] Response Listener Activated: Pausing for customer reply with AI Intent Classifier`,
     ];
 
@@ -532,7 +746,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       status: "PENDING",
       assignedToId: currentUser.id,
       assignedToName: currentUser.name,
-      managerId: currentUser.managerId || "usr-mgr-1",
+      managerId: currentUser.managerId || currentUser.id,
     };
     setTasks((prev) => [newTask, ...prev]);
   };
@@ -569,9 +783,15 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   return (
     <FlowDeskStoreContext.Provider
       value={{
+        isAuthenticated,
+        organization,
         currentUser,
         setCurrentUser,
         switchUserRole,
+        login,
+        createAgency,
+        logout,
+        resetWorkspace,
         contacts: scopedContacts,
         allContacts,
         leadLists,
@@ -586,6 +806,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         chats,
         campaigns,
         users,
+        addManager,
+        addEmployee,
         importContacts,
         updateContact,
         addContact,

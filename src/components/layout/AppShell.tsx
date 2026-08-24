@@ -3,9 +3,17 @@
 import React, { useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { useFlowDesk } from "@/lib/store";
+import { AdminOnboardingModal } from "@/components/auth/AdminOnboardingModal";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { isAuthenticated, organization } = useFlowDesk();
+
+  // If not authenticated or agency not created, display the Admin Login & Agency Creation wizard
+  if (!isAuthenticated || !organization) {
+    return <AdminOnboardingModal />;
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-950">

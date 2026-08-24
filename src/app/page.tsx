@@ -18,6 +18,9 @@ import {
   Plus,
   Filter,
   Check,
+  Building2,
+  Users,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -26,7 +29,7 @@ import { useFlowDesk } from "@/lib/store";
 import { formatCurrency } from "@/lib/utils";
 
 export default function DashboardPage() {
-  const { contacts, tasks, automations, events, deals, toggleTaskStatus } = useFlowDesk();
+  const { contacts, tasks, automations, events, deals, currentUser, organization, toggleTaskStatus } = useFlowDesk();
   const [quickFollowupSuccess, setQuickFollowupSuccess] = useState<string | null>(null);
 
   const hotLeads = contacts.filter((c) => c.leadScore >= 80 || c.tags.some((t) => t.name === "Hot Lead"));
@@ -49,13 +52,15 @@ export default function DashboardPage() {
           <div>
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-semibold mb-2">
               <Sparkles className="h-3.5 w-3.5 text-indigo-300" />
-              <span>Command Center Active</span>
+              <span>Agency: {organization?.name || "FlowDesk AI"}</span>
             </div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white">
-              Good Morning, Aman 👋
+              Good Morning, {currentUser.name.split(" ")[0]} 👋
             </h1>
             <p className="text-slate-300 text-sm mt-1 max-w-xl">
-              You have <span className="text-amber-400 font-semibold">{pendingTasks.length + hotLeads.length} items</span> requiring your attention today. Active automations are actively engaging leads in the background.
+              {contacts.length === 0
+                ? "Your new agency workspace is clean and ready. Import your leads or invite your sales team to get started."
+                : `You have ${pendingTasks.length + hotLeads.length} items requiring attention today.`}
             </p>
           </div>
 
@@ -75,6 +80,70 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Fresh Agency Setup Checklist if 0 contacts */}
+      {contacts.length === 0 && (
+        <Card className="border-indigo-200 bg-gradient-to-r from-indigo-50/50 via-white to-purple-50/30 dark:bg-slate-900 dark:border-slate-800">
+          <CardContent className="p-6 space-y-4">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-indigo-600" />
+                <span>Get Started with {organization?.name || "Your Agency"}</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Complete these 3 simple steps to launch your automated marketing machine:
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-xl border border-indigo-100 bg-white space-y-2 dark:bg-slate-800 dark:border-slate-700">
+                <div className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 font-bold flex items-center justify-center text-xs dark:bg-indigo-950 dark:text-indigo-400">
+                  1
+                </div>
+                <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">Smart Import Contacts</h4>
+                <p className="text-[11px] text-slate-500">
+                  Drag & drop your Excel/CSV contacts sheet, or scan screenshots.
+                </p>
+                <Link href="/contacts/import" className="block pt-1">
+                  <Button size="sm" className="w-full text-xs font-semibold bg-indigo-600 text-white">
+                    Import Excel / CSV
+                  </Button>
+                </Link>
+              </div>
+
+              <div className="p-4 rounded-xl border border-purple-100 bg-white space-y-2 dark:bg-slate-800 dark:border-slate-700">
+                <div className="h-8 w-8 rounded-lg bg-purple-50 text-purple-600 font-bold flex items-center justify-center text-xs dark:bg-purple-950 dark:text-purple-400">
+                  2
+                </div>
+                <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">Add Managers & Reps</h4>
+                <p className="text-[11px] text-slate-500">
+                  Create sales pods and assign employees under managers.
+                </p>
+                <Link href="/admin/organization" className="block pt-1">
+                  <Button size="sm" variant="outline" className="w-full text-xs font-semibold border-purple-200 text-purple-700">
+                    Manage Team
+                  </Button>
+                </Link>
+              </div>
+
+              <div className="p-4 rounded-xl border border-emerald-100 bg-white space-y-2 dark:bg-slate-800 dark:border-slate-700">
+                <div className="h-8 w-8 rounded-lg bg-emerald-50 text-emerald-600 font-bold flex items-center justify-center text-xs dark:bg-emerald-950 dark:text-emerald-400">
+                  3
+                </div>
+                <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">Connect Official WhatsApp</h4>
+                <p className="text-[11px] text-slate-500">
+                  Configure Meta WhatsApp Business Cloud API & SMTP credentials.
+                </p>
+                <Link href="/admin/settings" className="block pt-1">
+                  <Button size="sm" variant="outline" className="w-full text-xs font-semibold border-emerald-200 text-emerald-700">
+                    Configure APIs
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 4 Action Cards: Daily Attention Drivers */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -125,7 +194,7 @@ export default function DashboardPage() {
                 Upcoming Events
               </span>
               <p className="text-2xl font-bold text-slate-900 dark:text-white">{events.length}</p>
-              <p className="text-[11px] text-slate-500">384 total registered</p>
+              <p className="text-[11px] text-slate-500">Automated reminder sequences</p>
             </div>
             <Link href="/events">
               <div className="h-10 w-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center hover:scale-105 transition-transform dark:bg-indigo-900/50 dark:text-indigo-300">
@@ -141,9 +210,9 @@ export default function DashboardPage() {
             <div className="space-y-1">
               <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider flex items-center gap-1">
                 <MessageSquare className="h-3.5 w-3.5" />
-                Active Chats
+                Conversations
               </span>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white">5 Unread</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white">Unified Inbox</p>
               <p className="text-[11px] text-slate-500">WhatsApp & Email replies</p>
             </div>
             <Link href="/conversations">
@@ -157,7 +226,7 @@ export default function DashboardPage() {
 
       {/* Main Grid: Activity Tracker & Real-Time Action Lists */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Columns: Hot Leads & Follow-ups Queue */}
+        {/* Left 2 Columns: Priority Leads & Follow-ups Queue */}
         <div className="lg:col-span-2 space-y-6">
           {/* Priority Leads Requiring Follow-up */}
           <Card>
@@ -178,53 +247,64 @@ export default function DashboardPage() {
               </Link>
             </CardHeader>
             <CardContent className="p-5 pt-0">
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {hotLeads.slice(0, 4).map((contact) => (
-                  <div key={contact.id} className="py-3.5 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-700 text-xs dark:bg-slate-800 dark:text-slate-300">
-                        {contact.name.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Link href={`/contacts/${contact.id}`} className="font-semibold text-sm text-slate-900 hover:text-indigo-600 dark:text-slate-100">
-                            {contact.name}
-                          </Link>
-                          <Badge variant="destructive" className="text-[10px] py-0 px-1.5">
-                            Score {contact.leadScore}
-                          </Badge>
+              {hotLeads.length === 0 ? (
+                <div className="py-8 text-center space-y-2">
+                  <p className="text-xs text-slate-400">No leads imported yet in this agency workspace.</p>
+                  <Link href="/contacts/import">
+                    <Button size="sm" variant="outline" className="text-xs font-semibold">
+                      Import Contacts from Excel
+                    </Button>
+                  </Link>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {hotLeads.slice(0, 4).map((contact) => (
+                    <div key={contact.id} className="py-3.5 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-700 text-xs dark:bg-slate-800 dark:text-slate-300">
+                          {contact.name.slice(0, 2).toUpperCase()}
                         </div>
-                        <p className="text-xs text-slate-500">
-                          {contact.company || "Direct Lead"} • {contact.location || "India"}
-                        </p>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <Link href={`/contacts/${contact.id}`} className="font-semibold text-sm text-slate-900 hover:text-indigo-600 dark:text-slate-100">
+                              {contact.name}
+                            </Link>
+                            <Badge variant="destructive" className="text-[10px] py-0 px-1.5">
+                              Score {contact.leadScore}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            {contact.company || "Direct Lead"} • {contact.location || "India"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {quickFollowupSuccess === contact.id ? (
+                          <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Sent
+                          </span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleQuickWhatsApp(contact.name, contact.id)}
+                            className="text-xs font-medium border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-8 gap-1.5 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                          >
+                            <Send className="h-3 w-3" />
+                            <span>WhatsApp</span>
+                          </Button>
+                        )}
+                        <Link href={`/contacts/${contact.id}`}>
+                          <Button size="sm" variant="ghost" className="h-8 text-xs text-slate-600">
+                            360° Profile
+                          </Button>
+                        </Link>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2">
-                      {quickFollowupSuccess === contact.id ? (
-                        <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Sent
-                        </span>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleQuickWhatsApp(contact.name, contact.id)}
-                          className="text-xs font-medium border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-8 gap-1.5 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
-                        >
-                          <Send className="h-3 w-3" />
-                          <span>WhatsApp</span>
-                        </Button>
-                      )}
-                      <Link href={`/contacts/${contact.id}`}>
-                        <Button size="sm" variant="ghost" className="h-8 text-xs text-slate-600">
-                          360° Profile
-                        </Button>
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -234,7 +314,7 @@ export default function DashboardPage() {
               <div>
                 <CardTitle className="text-base font-bold flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-amber-500" />
-                  <span>Today&apos;s Follow-up Action Items</span>
+                  <span>Follow-up Action Items</span>
                 </CardTitle>
                 <CardDescription className="text-xs">
                   Automations and team members created these scheduled tasks
@@ -247,122 +327,100 @@ export default function DashboardPage() {
               </Link>
             </CardHeader>
             <CardContent className="p-5 pt-0">
-              <div className="space-y-2">
-                {tasks.slice(0, 3).map((task) => (
-                  <div
-                    key={task.id}
-                    className="p-3 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-slate-50 flex items-center justify-between gap-3 transition-colors dark:border-slate-800 dark:bg-slate-900/40"
-                  >
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => toggleTaskStatus(task.id)}
-                        className={`h-5 w-5 rounded-md border flex items-center justify-center transition-colors cursor-pointer ${
-                          task.status === "COMPLETED"
-                            ? "bg-emerald-600 border-emerald-600 text-white"
-                            : "border-slate-300 hover:border-indigo-500 bg-white dark:bg-slate-800"
-                        }`}
-                      >
-                        {task.status === "COMPLETED" && <Check className="h-3.5 w-3.5" />}
-                      </button>
-                      <div>
-                        <p className={`text-xs font-semibold ${task.status === "COMPLETED" ? "line-through text-slate-400" : "text-slate-800 dark:text-slate-200"}`}>
-                          {task.title}
-                        </p>
-                        <p className="text-[11px] text-slate-400">
-                          {task.contactName} ({task.contactCompany}) • Due {task.dueDate}
-                        </p>
-                      </div>
-                    </div>
-
-                    <Badge
-                      variant={
-                        task.priority === "URGENT"
-                          ? "destructive"
-                          : task.priority === "HIGH"
-                          ? "warning"
-                          : "secondary"
-                      }
-                      className="text-[10px]"
+              {tasks.length === 0 ? (
+                <div className="py-8 text-center space-y-2">
+                  <p className="text-xs text-slate-400">No scheduled tasks pending.</p>
+                  <Link href="/tasks">
+                    <Button size="sm" variant="outline" className="text-xs font-semibold">
+                      Create a Task
+                    </Button>
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {tasks.slice(0, 3).map((task) => (
+                    <div
+                      key={task.id}
+                      className="p-3 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-slate-50 flex items-center justify-between gap-3 transition-colors dark:border-slate-800 dark:bg-slate-900/40"
                     >
-                      {task.priority}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => toggleTaskStatus(task.id)}
+                          className={`h-5 w-5 rounded-md border flex items-center justify-center transition-colors cursor-pointer ${
+                            task.status === "COMPLETED"
+                              ? "bg-emerald-600 border-emerald-600 text-white"
+                              : "border-slate-300 hover:border-indigo-500 bg-white dark:bg-slate-800"
+                          }`}
+                        >
+                          {task.status === "COMPLETED" && <Check className="h-3.5 w-3.5" />}
+                        </button>
+                        <div>
+                          <p className={`text-xs font-semibold ${task.status === "COMPLETED" ? "line-through text-slate-400" : "text-slate-800 dark:text-slate-200"}`}>
+                            {task.title}
+                          </p>
+                          <p className="text-[11px] text-slate-400">
+                            {task.contactName} ({task.contactCompany}) • Due {task.dueDate}
+                          </p>
+                        </div>
+                      </div>
+
+                      <Badge
+                        variant={
+                          task.priority === "URGENT"
+                            ? "destructive"
+                            : task.priority === "HIGH"
+                            ? "warning"
+                            : "secondary"
+                        }
+                        className="text-[10px]"
+                      >
+                        {task.priority}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Right Column: Live Automation Activity & Pipeline */}
         <div className="space-y-6">
-          {/* Automation Activity Live Stats */}
+          {/* Active Automations List */}
           <Card className="border-indigo-100 bg-gradient-to-b from-indigo-50/40 to-white dark:from-indigo-950/20 dark:to-slate-900">
             <CardHeader className="p-5 pb-3">
               <CardTitle className="text-sm font-bold flex items-center gap-2 text-indigo-900 dark:text-indigo-200">
                 <Zap className="h-4 w-4 text-indigo-600" />
-                <span>Live Automation Stats</span>
+                <span>Active Workflows ({automations.length})</span>
               </CardTitle>
               <CardDescription className="text-xs">
-                Background worker execution metrics (Last 24h)
+                Response-based automation triggers ready for new leads
               </CardDescription>
             </CardHeader>
-            <CardContent className="p-5 pt-0 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs dark:bg-slate-800 dark:border-slate-700">
-                  <p className="text-[11px] font-medium text-slate-500">WhatsApp Sent</p>
-                  <p className="text-xl font-bold text-emerald-600 mt-0.5">2,430</p>
-                  <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded">98.4% Delivered</span>
-                </div>
-                <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs dark:bg-slate-800 dark:border-slate-700">
-                  <p className="text-[11px] font-medium text-slate-500">Emails Sent</p>
-                  <p className="text-xl font-bold text-sky-600 mt-0.5">1,820</p>
-                  <span className="text-[10px] text-sky-700 font-semibold bg-sky-50 px-1.5 py-0.5 rounded">42% Opened</span>
-                </div>
-                <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs dark:bg-slate-800 dark:border-slate-700">
-                  <p className="text-[11px] font-medium text-slate-500">Tasks Created</p>
-                  <p className="text-xl font-bold text-amber-600 mt-0.5">124</p>
-                  <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-1.5 py-0.5 rounded">Auto-Assigned</span>
-                </div>
-                <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs dark:bg-slate-800 dark:border-slate-700">
-                  <p className="text-[11px] font-medium text-slate-500">Pipeline Value</p>
-                  <p className="text-xl font-bold text-indigo-600 mt-0.5">{formatCurrency(totalPipeline)}</p>
-                  <span className="text-[10px] text-indigo-700 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded">Active Deals</span>
-                </div>
-              </div>
-
-              {/* Active Automations List with Health Badges */}
-              <div className="pt-2">
-                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Active Workflows
-                </p>
-                <div className="space-y-2">
-                  {automations.map((auto) => (
-                    <Link
-                      key={auto.id}
-                      href={`/automations/${auto.id}`}
-                      className="p-2.5 rounded-lg border border-slate-100 bg-white hover:border-indigo-200 flex items-center justify-between text-xs transition-colors dark:bg-slate-800 dark:border-slate-700"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            auto.status === "ACTIVE"
-                              ? "bg-emerald-500"
-                              : auto.status === "ERROR"
-                              ? "bg-rose-500 animate-ping"
-                              : "bg-slate-300"
-                          }`}
-                        />
-                        <span className="font-semibold text-slate-800 truncate max-w-[180px] dark:text-slate-200">
-                          {auto.name}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-medium">
-                        {auto.executionCount} runs
-                      </span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
+            <CardContent className="p-5 pt-0 space-y-2">
+              {automations.map((auto) => (
+                <Link
+                  key={auto.id}
+                  href={`/automations/${auto.id}`}
+                  className="p-2.5 rounded-lg border border-slate-100 bg-white hover:border-indigo-200 flex items-center justify-between text-xs transition-colors dark:bg-slate-800 dark:border-slate-700"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        auto.status === "ACTIVE"
+                          ? "bg-emerald-500"
+                          : "bg-slate-300"
+                      }`}
+                    />
+                    <span className="font-semibold text-slate-800 truncate max-w-[180px] dark:text-slate-200">
+                      {auto.name}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    {auto.executionCount} runs
+                  </span>
+                </Link>
+              ))}
             </CardContent>
           </Card>
 

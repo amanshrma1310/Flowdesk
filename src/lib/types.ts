@@ -1,5 +1,18 @@
 export type UserRole = "MAIN_ADMIN" | "MANAGER" | "EMPLOYEE" | "CUSTOM";
 
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  industry?: string;
+  country?: string;
+  timezone?: string;
+  currency?: string;
+  phone?: string;
+  createdAt: string;
+  plan?: string;
+}
+
 export type PermissionAction =
   | "LEAD_VIEW_ALL"
   | "LEAD_VIEW_TEAM"
@@ -280,7 +293,7 @@ export interface AuditLog {
   userName: string;
   userRole: string;
   action: string;
-  entityType: "LEAD" | "CAMPAIGN" | "WORKFLOW" | "USER" | "TEMPLATE" | "SETTINGS" | "INTEGRATION";
+  entityType: "LEAD" | "CAMPAIGN" | "WORKFLOW" | "USER" | "TEMPLATE" | "SETTINGS" | "INTEGRATION" | "ORGANIZATION";
   entityName: string;
   details: string;
   timestamp: string;
