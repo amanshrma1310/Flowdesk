@@ -231,7 +231,7 @@ export default function ContactsPage() {
                     <td className="p-4">
                       <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-medium">
                         <UserCheck className="h-3.5 w-3.5 text-slate-400" />
-                        <span>{contact.assignedTo?.name || "Unassigned"}</span>
+                        <span>{contact.ownerName || "Unassigned"}</span>
                       </div>
                     </td>
 

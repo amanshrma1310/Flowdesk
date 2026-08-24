@@ -280,7 +280,7 @@ export default function ConversationsPage() {
               <span className="text-[10px] font-bold text-slate-400 uppercase">Assigned Rep</span>
               <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5 flex items-center gap-1">
                 <UserCheck className="h-3.5 w-3.5 text-indigo-600" />
-                {activeContact?.assignedTo?.name || "Rahul Kumar"}
+                {activeContact?.ownerName || "Priya Patel"}
               </p>
             </div>
 

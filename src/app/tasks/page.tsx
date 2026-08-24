@@ -147,7 +147,7 @@ export default function TasksPage() {
               <div className="flex items-center gap-3 shrink-0">
                 <div className="flex items-center gap-1.5 text-xs text-slate-500 hidden sm:flex">
                   <UserCheck className="h-3.5 w-3.5 text-slate-400" />
-                  <span>{task.assignedTo?.name || "Rahul Kumar"}</span>
+                  <span>{task.assignedToName || "Rahul Kumar"}</span>
                 </div>
 
                 <Badge

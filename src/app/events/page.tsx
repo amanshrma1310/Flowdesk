@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useFlowDesk } from "@/lib/store";
+import { EventItem } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 
 export default function EventsPage() {

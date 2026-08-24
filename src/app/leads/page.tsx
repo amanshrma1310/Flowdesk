@@ -118,7 +118,7 @@ export default function LeadsPipelinePage() {
                     <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700 text-[10px] text-slate-500">
                       <span className="flex items-center gap-1">
                         <UserCheck className="h-3 w-3 text-slate-400" />
-                        {contact.assignedTo?.name?.split(" ")[0] || "Rahul"}
+                        {contact.ownerName?.split(" ")[0] || "Priya"}
                       </span>
 
                       {/* Advance Stage button */}

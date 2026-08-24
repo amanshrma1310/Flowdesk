@@ -1,25 +1,65 @@
-export type LeadStatus =
-  | "NEW"
-  | "CONTACTED"
-  | "FOLLOW_UP"
-  | "INTERESTED"
-  | "QUALIFIED"
-  | "PROPOSAL_SENT"
-  | "CONVERTED"
-  | "LOST"
-  | "INACTIVE";
+export type UserRole = "MAIN_ADMIN" | "MANAGER" | "EMPLOYEE" | "CUSTOM";
 
-export type UserRole = "OWNER" | "ADMIN" | "MANAGER" | "SALES" | "MARKETING" | "SUPPORT";
+export type PermissionAction =
+  | "LEAD_VIEW_ALL"
+  | "LEAD_VIEW_TEAM"
+  | "LEAD_VIEW_OWN"
+  | "LEAD_CREATE"
+  | "LEAD_EDIT"
+  | "LEAD_DELETE"
+  | "LEAD_IMPORT"
+  | "LEAD_EXPORT"
+  | "LEAD_ASSIGN"
+  | "LEAD_REASSIGN"
+  | "CAMPAIGN_CREATE"
+  | "CAMPAIGN_LAUNCH"
+  | "CAMPAIGN_PAUSE"
+  | "TEMPLATE_CREATE"
+  | "TEMPLATE_APPROVE"
+  | "WORKFLOW_CREATE"
+  | "WORKFLOW_ACTIVATE"
+  | "WORKFLOW_PAUSE"
+  | "ANALYTICS_COMPANY"
+  | "ANALYTICS_TEAM"
+  | "ANALYTICS_OWN"
+  | "SETTINGS_MANAGE"
+  | "AUDIT_LOG_VIEW";
+
+export interface CustomRole {
+  id: string;
+  name: string;
+  description: string;
+  permissions: PermissionAction[];
+  isSystem?: boolean;
+}
 
 export interface User {
   id: string;
   name: string;
   email: string;
   role: UserRole;
-  avatarUrl?: string;
+  customRoleId?: string;
+  customRoleName?: string;
+  managerId?: string;
+  managerName?: string;
+  department?: string;
   territory?: string;
+  avatarUrl?: string;
   activeLeadsCount?: number;
+  managedEmployeeIds?: string[];
 }
+
+export type LeadStatus =
+  | "NEW"
+  | "CONTACTED"
+  | "INTERESTED"
+  | "QUALIFIED"
+  | "FOLLOW_UP"
+  | "NOT_INTERESTED"
+  | "CONVERTED"
+  | "LOST"
+  | "UNRESPONSIVE"
+  | "DO_NOT_CONTACT";
 
 export interface Tag {
   id: string;
@@ -27,15 +67,27 @@ export interface Tag {
   color: string;
 }
 
-export interface TimelineEvent {
+export interface LeadList {
   id: string;
-  contactId: string;
-  type: "WHATSAPP_SENT" | "EMAIL_OPENED" | "EMAIL_SENT" | "STATUS_CHANGED" | "TASK_CREATED" | "NOTE" | "IMPORTED" | "FORM_SUBMITTED";
-  title: string;
+  name: string;
   description?: string;
+  createdById: string;
+  createdByName: string;
   createdAt: string;
-  userName?: string;
-  channel?: "WHATSAPP" | "EMAIL" | "SYSTEM" | "TASK";
+  leadCount: number;
+  source: string;
+  assignedWorkflowId?: string;
+  assignedWorkflowName?: string;
+}
+
+export interface LeadJourneyStep {
+  id: string;
+  title: string;
+  description: string;
+  timestamp: string;
+  actor: string;
+  channel?: "WHATSAPP" | "EMAIL" | "SYSTEM" | "TASK" | "AI";
+  status: "COMPLETED" | "CURRENT" | "PENDING" | "FAILED";
 }
 
 export interface Contact {
@@ -45,18 +97,34 @@ export interface Contact {
   phone?: string;
   company?: string;
   title?: string;
+  website?: string;
+  location?: string;
   source: string;
   status: LeadStatus;
   leadScore: number;
-  location?: string;
   customFields?: Record<string, string | number | boolean>;
-  assignedTo?: User;
-  assignedToId?: string;
+  
+  // 3-Point Ownership
+  createdById: string;
+  createdByName: string;
+  ownerId: string;
+  ownerName: string;
+  managerId: string;
+  managerName: string;
+  
+  leadListId?: string;
+  leadListName?: string;
+  
   tags: Tag[];
+  doNotContact?: boolean;
+  activeWorkflowId?: string;
+  activeWorkflowName?: string;
+  
   createdAt: string;
   updatedAt: string;
-  unreadCount?: number;
   lastContactedAt?: string;
+  nextFollowUpDate?: string;
+  unreadCount?: number;
 }
 
 export interface Deal {
@@ -83,7 +151,8 @@ export type NodeType =
   | "action_assign"
   | "action_tag"
   | "condition"
-  | "delay";
+  | "delay"
+  | "ai_intent_classifier";
 
 export interface FlowNodeData {
   label: string;
@@ -104,6 +173,7 @@ export interface FlowEdge {
   id: string;
   source: string;
   target: string;
+  sourceHandle?: string;
   label?: string;
   animated?: boolean;
 }
@@ -123,6 +193,9 @@ export interface Automation {
   failureCount: number;
   lastRunAt?: string;
   category: "SALES" | "MARKETING" | "EVENTS" | "ECOMMERCE" | "CUSTOM";
+  createdById?: string;
+  createdByName?: string;
+  managerId?: string;
 }
 
 export interface Task {
@@ -135,8 +208,9 @@ export interface Task {
   dueDate: string;
   priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
-  assignedTo?: User;
-  assignedToId?: string;
+  assignedToId: string;
+  assignedToName: string;
+  managerId?: string;
 }
 
 export interface EventItem {
@@ -164,6 +238,7 @@ export interface ChatMessage {
   mediaUrl?: string;
   templateName?: string;
   timestamp: string;
+  aiIntent?: "INTERESTED" | "NOT_INTERESTED" | "QUESTION" | "COMPLAINT";
 }
 
 export interface Campaign {
@@ -178,6 +253,38 @@ export interface Campaign {
   deliveredCount: number;
   readCount: number;
   clickedCount: number;
+  repliedCount?: number;
+  ownerId?: string;
+  ownerName?: string;
+  managerId?: string;
+}
+
+export interface MessageTemplate {
+  id: string;
+  name: string;
+  channel: "WHATSAPP" | "EMAIL";
+  subject?: string;
+  body: string;
+  category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
+  status: "APPROVED" | "PENDING_APPROVAL" | "REJECTED" | "DRAFT";
+  isCompanyWide: boolean;
+  createdById: string;
+  createdByName: string;
+  createdAt: string;
+  approvedBy?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: string;
+  action: string;
+  entityType: "LEAD" | "CAMPAIGN" | "WORKFLOW" | "USER" | "TEMPLATE" | "SETTINGS" | "INTEGRATION";
+  entityName: string;
+  details: string;
+  timestamp: string;
+  ipAddress?: string;
 }
 
 export interface SmartImportColumnMapping {
