@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useFlowDesk } from "@/lib/store";
 import { LeadForm } from "@/lib/types";
 
 export default function PublicFormPage({ params }: { params: Promise<{ id: string }> }) {
@@ -27,24 +26,16 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
   const searchParams = useSearchParams();
   const isSubmittedFromUrl = searchParams.get("submitted") === "true";
 
-  const { forms, submitLeadForm, organization } = useFlowDesk();
-
   const [targetForm, setTargetForm] = useState<LeadForm | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(isSubmittedFromUrl);
   const [responseMsg, setResponseMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
-    // 1. Try local state
-    const found = forms.find((f) => f.id === formId);
-    if (found) {
-      setTargetForm(found);
-      return;
-    }
-
-    // 2. Try fetching from server API for cross-domain / iframe availability
+    // Fetch form configuration from server API
     fetch(`/api/v1/agencies`)
       .then((res) => res.json())
       .then((data) => {
@@ -60,22 +51,22 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
       })
       .catch(() => {})
       .finally(() => {
-        // 3. Fallback default form if not found
+        // Fallback default form if not yet created on server
         setTargetForm((current) => {
           if (current) return current;
           return {
             id: formId,
-            agencyId: organization?.id || "org-1",
+            agencyId: "org-1",
             title: "Website Consultation & Inquiry Form",
-            description: "Submit your details below to request a personalized quote and consultation.",
+            description: "Submit your details below to request a personalized consultation.",
             submitButtonText: "Submit Inquiry",
-            successMessage: "Thank you! Our marketing team has received your inquiry and will contact you shortly.",
+            successMessage: "Thank you! We have received your inquiry. Our team will contact you shortly.",
             fields: [
-              { id: "f-name", label: "Full Name", name: "name", type: "text", required: true, placeholder: "John Doe" },
-              { id: "f-phone", label: "WhatsApp / Phone Number", name: "phone", type: "tel", required: true, placeholder: "+91 98765 43210" },
-              { id: "f-email", label: "Work Email", name: "email", type: "email", required: true, placeholder: "john@company.com" },
-              { id: "f-comp", label: "Company Name", name: "company", type: "text", required: false, placeholder: "Acme Corp" },
-              { id: "f-notes", label: "Project Details / Notes", name: "notes", type: "textarea", required: false, placeholder: "How can we help your business?" },
+              { id: "f-name", label: "Full Name", name: "name", type: "text", required: true, placeholder: "e.g. John Doe" },
+              { id: "f-phone", label: "WhatsApp / Phone Number", name: "phone", type: "tel", required: true, placeholder: "e.g. +91 98765 43210" },
+              { id: "f-email", label: "Work Email", name: "email", type: "email", required: true, placeholder: "e.g. john@company.com" },
+              { id: "f-comp", label: "Company Name", name: "company", type: "text", required: false, placeholder: "e.g. Acme Corp" },
+              { id: "f-notes", label: "Requirements / Notes", name: "notes", type: "textarea", required: false, placeholder: "Tell us about your needs..." },
             ],
             submissionCount: 0,
             isActive: true,
@@ -85,35 +76,54 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
           };
         });
       });
-  }, [formId, forms, organization]);
+  }, [formId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
+
     if (!formData.name && !formData.phone && !formData.email) {
-      alert("Please provide at least your name and phone number or email.");
+      setErrorMsg("Please provide at least your name and phone number or email.");
       return;
     }
 
     setIsSubmitting(true);
-    const res = await submitLeadForm(formId, formData);
-    setIsSubmitting(false);
 
-    if (res.success) {
-      const destinationUrl = res.redirectUrl || targetForm?.redirectUrl;
+    try {
+      const res = await fetch(`/api/v1/forms/${formId}/submit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
 
-      // Only redirect if a custom external redirect URL was explicitly configured
-      if (destinationUrl && destinationUrl.startsWith("http")) {
-        setRedirecting(true);
-        setSubmitted(true);
-        setResponseMsg(`Thank you! Redirecting to welcome page...`);
-        setTimeout(() => {
-          window.location.href = destinationUrl;
-        }, 1000);
+      const json = await res.json();
+      setIsSubmitting(false);
+
+      if (json.success) {
+        const destinationUrl = json.redirectUrl || targetForm?.redirectUrl;
+
+        // Only redirect if custom external URL was configured
+        if (destinationUrl && destinationUrl.startsWith("http")) {
+          setRedirecting(true);
+          setSubmitted(true);
+          setResponseMsg(`Thank you! Redirecting to welcome page...`);
+          setTimeout(() => {
+            window.location.href = destinationUrl;
+          }, 1000);
+        } else {
+          // Show on-screen confirmation card
+          setSubmitted(true);
+          setResponseMsg(json.message || targetForm?.successMessage || "Thank you! Your submission was received.");
+        }
       } else {
-        // Stay on page and display custom Thank You confirmation message
-        setSubmitted(true);
-        setResponseMsg(res.message || targetForm?.successMessage || "Thank you! Your submission was received.");
+        setErrorMsg(json.error || "Failed to submit inquiry. Please try again.");
       }
+    } catch (err: any) {
+      setIsSubmitting(false);
+      setErrorMsg("Network error submitting form. Please try again.");
     }
   };
 
@@ -121,6 +131,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
     setSubmitted(false);
     setFormData({});
     setResponseMsg("");
+    setErrorMsg(null);
   };
 
   if (!targetForm) {
@@ -154,6 +165,13 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
           )}
         </div>
 
+        {errorMsg && (
+          <div className="p-3 bg-rose-950/60 border border-rose-800 text-rose-300 rounded-xl text-xs flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
         {/* THANK YOU / CONFIRMATION VIEW */}
         {submitted ? (
           <div className="p-6 sm:p-8 bg-emerald-950/60 border border-emerald-800 text-emerald-200 rounded-xl text-center space-y-4 animate-in zoom-in-95 duration-200">
@@ -175,7 +193,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
                 variant="outline"
                 size="sm"
                 onClick={handleResetForm}
-                className="mt-2 text-xs border-emerald-700 text-emerald-300 hover:bg-emerald-900/50 gap-1.5"
+                className="mt-2 text-xs border-emerald-700 text-emerald-300 hover:bg-emerald-900/50 gap-1.5 cursor-pointer"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 <span>Submit Another Request</span>

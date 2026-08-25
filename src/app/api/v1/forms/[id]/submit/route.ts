@@ -1,6 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findFormAcrossAgencies, serverAgencies, saveServerAgency } from "@/lib/serverStore";
 
+function getPublicBaseUrl(req: NextRequest): string {
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https");
+
+  if (host && !host.includes("0.0.0.0")) {
+    return `${proto}://${host}`;
+  }
+
+  const referer = req.headers.get("referer");
+  if (referer) {
+    try {
+      const u = new URL(referer);
+      if (!u.host.includes("0.0.0.0")) return u.origin;
+    } catch {}
+  }
+
+  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes("0.0.0.0")) {
+    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  }
+
+  return "https://moccasin-viper-720799.hostingersite.com";
+}
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -27,17 +60,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const leadNotes = data.notes || data.message || data.requirement || "";
     const redirectUrl = data.redirectUrl || data["redirect_url"] || "";
 
+    const baseUrl = getPublicBaseUrl(req);
+
     if (!leadName && !leadPhone && !leadEmail) {
       if (isAjax) {
         return NextResponse.json(
           { success: false, error: "At least name, phone, or email is required." },
-          { status: 400 }
+          { status: 400, headers: CORS_HEADERS }
         );
       } else {
-        return NextResponse.redirect(
-          new URL(`/forms/public/${id}?error=missing_fields`, req.url),
-          { status: 303 }
-        );
+        return NextResponse.redirect(`${baseUrl}/forms/public/${id}?error=missing_fields`, { status: 303 });
       }
     }
 
@@ -92,7 +124,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
           action: `Lead Captured via Web Form: ${targetForm?.title || id}`,
           channel: "System",
-          details: `Submitted online on ${req.headers.get("referer") || "Website"}.${leadNotes ? ` Notes: ${leadNotes}` : ""}${customSummary ? ` [Custom Fields: ${customSummary}]` : ""}`,
+          details: `Submitted online from ${req.headers.get("referer") || "Website"}.${leadNotes ? ` Notes: ${leadNotes}` : ""}${customSummary ? ` [Custom Fields: ${customSummary}]` : ""}`,
           actor: "Web Form Ingestion",
         },
       ],
@@ -122,12 +154,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const finalRedirectUrl = redirectUrl || targetForm?.redirectUrl;
 
     if (isAjax) {
-      return NextResponse.json({
-        success: true,
-        message: targetForm?.successMessage || "Thank you! We have received your inquiry.",
-        redirectUrl: finalRedirectUrl || undefined,
-        lead: newLead,
-      });
+      return NextResponse.json(
+        {
+          success: true,
+          message: targetForm?.successMessage || "Thank you! We have received your inquiry.",
+          redirectUrl: finalRedirectUrl || undefined,
+          lead: newLead,
+        },
+        { headers: CORS_HEADERS }
+      );
     }
 
     // If external redirect URL is configured, navigate visitor to it
@@ -135,13 +170,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.redirect(finalRedirectUrl, { status: 303 });
     }
 
-    // Otherwise redirect to clean Thank You confirmation page
-    return NextResponse.redirect(
-      new URL(`/forms/public/${id}?submitted=true`, req.url),
-      { status: 303 }
-    );
+    // Otherwise redirect to clean Thank You confirmation page with safe public base URL
+    return NextResponse.redirect(`${baseUrl}/forms/public/${id}?submitted=true`, { status: 303 });
   } catch (err: any) {
     console.error("Form Ingestion Error:", err);
-    return NextResponse.json({ success: false, error: err.message || "Submission failed" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: err.message || "Submission failed" },
+      { status: 500, headers: CORS_HEADERS }
+    );
   }
 }
