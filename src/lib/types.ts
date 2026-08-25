@@ -1,49 +1,27 @@
-export type UserRole = "MAIN_ADMIN" | "MANAGER" | "EMPLOYEE" | "CUSTOM";
+export type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE";
 
 export interface Organization {
   id: string;
   name: string;
-  slug: string;
-  industry?: string;
-  country?: string;
-  timezone?: string;
-  currency?: string;
-  phone?: string;
+  joinCode: string;
   createdAt: string;
-  plan?: string;
+  adminId: string;
+  adminName: string;
+  adminEmail: string;
 }
 
-export type PermissionAction =
-  | "LEAD_VIEW_ALL"
-  | "LEAD_VIEW_TEAM"
-  | "LEAD_VIEW_OWN"
-  | "LEAD_CREATE"
-  | "LEAD_EDIT"
-  | "LEAD_DELETE"
-  | "LEAD_IMPORT"
-  | "LEAD_EXPORT"
-  | "LEAD_ASSIGN"
-  | "LEAD_REASSIGN"
-  | "CAMPAIGN_CREATE"
-  | "CAMPAIGN_LAUNCH"
-  | "CAMPAIGN_PAUSE"
-  | "TEMPLATE_CREATE"
-  | "TEMPLATE_APPROVE"
-  | "WORKFLOW_CREATE"
-  | "WORKFLOW_ACTIVATE"
-  | "WORKFLOW_PAUSE"
-  | "ANALYTICS_COMPANY"
-  | "ANALYTICS_TEAM"
-  | "ANALYTICS_OWN"
-  | "SETTINGS_MANAGE"
-  | "AUDIT_LOG_VIEW";
-
-export interface CustomRole {
-  id: string;
-  name: string;
-  description: string;
-  permissions: PermissionAction[];
-  isSystem?: boolean;
+export interface UserPermissions {
+  manageUsers: boolean;
+  manageEmployees: boolean;
+  viewAllLeads: boolean;
+  viewTeamLeads: boolean;
+  addLeads: boolean;
+  importLeads: boolean;
+  emailMarketing: boolean;
+  whatsAppMarketing: boolean;
+  createTemplates: boolean;
+  createWorkflows: boolean;
+  viewReports: boolean;
 }
 
 export interface User {
@@ -51,267 +29,179 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
-  customRoleId?: string;
-  customRoleName?: string;
-  managerId?: string;
+  agencyId: string;
+  managerId?: string; // If employee, assigned manager
   managerName?: string;
-  department?: string;
-  territory?: string;
-  avatarUrl?: string;
-  activeLeadsCount?: number;
-  managedEmployeeIds?: string[];
+  isActive: boolean;
+  createdAt: string;
+  permissions?: Partial<UserPermissions>;
 }
 
 export type LeadStatus =
-  | "NEW"
-  | "CONTACTED"
-  | "INTERESTED"
-  | "QUALIFIED"
-  | "FOLLOW_UP"
-  | "NOT_INTERESTED"
-  | "CONVERTED"
-  | "LOST"
-  | "UNRESPONSIVE"
-  | "DO_NOT_CONTACT";
+  | "New"
+  | "Contacted"
+  | "Follow-up"
+  | "Interested"
+  | "Not Interested"
+  | "Positive"
+  | "Negative"
+  | "Converted"
+  | "Unresponsive"
+  | "Unsubscribed"
+  | "Blocked";
 
-export interface Tag {
+export interface LeadActivity {
   id: string;
-  name: string;
-  color: string;
+  timestamp: string;
+  action: string;
+  channel?: "Email" | "WhatsApp" | "System" | "Workflow";
+  details?: string;
+  actor: string;
 }
 
-export interface LeadList {
+export interface Lead {
   id: string;
+  agencyId: string;
   name: string;
-  description?: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  whatsApp?: string;
+  website?: string;
+  source: string;
+  status: LeadStatus;
+  notes?: string;
+  tags: string[];
+  folderId?: string;
+  folderName?: string;
+  createdById: string;
+  createdByName: string;
+  assignedEmployeeId: string;
+  assignedEmployeeName: string;
+  managerId?: string;
+  managerName?: string;
+  activeWorkflowId?: string;
+  activeWorkflowName?: string;
+  createdAt: string;
+  updatedAt: string;
+  activities: LeadActivity[];
+}
+
+export interface LeadFolder {
+  id: string;
+  agencyId: string;
+  name: string;
   createdById: string;
   createdByName: string;
   createdAt: string;
   leadCount: number;
-  source: string;
-  assignedWorkflowId?: string;
-  assignedWorkflowName?: string;
+  newCount: number;
+  contactedCount: number;
+  interestedCount: number;
+  notInterestedCount: number;
+  convertedCount: number;
 }
 
-export interface LeadJourneyStep {
-  id: string;
-  title: string;
-  description: string;
-  timestamp: string;
-  actor: string;
-  channel?: "WHATSAPP" | "EMAIL" | "SYSTEM" | "TASK" | "AI";
-  status: "COMPLETED" | "CURRENT" | "PENDING" | "FAILED";
-}
+export type TemplateChannel = "Email" | "WhatsApp";
 
-export interface Contact {
+export interface MarketingTemplate {
   id: string;
+  agencyId: string;
   name: string;
-  email?: string;
-  phone?: string;
-  company?: string;
-  title?: string;
-  website?: string;
-  location?: string;
-  source: string;
-  status: LeadStatus;
-  leadScore: number;
-  customFields?: Record<string, string | number | boolean>;
-  
-  // 3-Point Ownership
+  channel: TemplateChannel;
+  subject?: string; // For Email
+  body: string;
   createdById: string;
   createdByName: string;
-  ownerId: string;
-  ownerName: string;
-  managerId: string;
-  managerName: string;
-  
-  leadListId?: string;
-  leadListName?: string;
-  
-  tags: Tag[];
-  doNotContact?: boolean;
-  activeWorkflowId?: string;
-  activeWorkflowName?: string;
-  
   createdAt: string;
-  updatedAt: string;
-  lastContactedAt?: string;
-  nextFollowUpDate?: string;
-  unreadCount?: number;
 }
 
-export interface Deal {
-  id: string;
-  title: string;
-  contactId: string;
-  contactName: string;
-  company: string;
-  value: number;
-  stage: "DISCOVERY" | "PROPOSAL" | "NEGOTIATION" | "WON" | "LOST";
-  probability: number;
-  expectedCloseDate: string;
-  assignedToName: string;
-}
-
-export type AutomationStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ERROR";
-
-export type NodeType =
-  | "trigger"
-  | "action_whatsapp"
-  | "action_email"
-  | "action_sms"
-  | "action_task"
-  | "action_assign"
-  | "action_tag"
-  | "condition"
-  | "delay"
-  | "ai_intent_classifier";
-
-export interface FlowNodeData {
-  label: string;
-  type: NodeType;
-  description?: string;
-  config: Record<string, any>;
-  icon?: string;
-}
-
-export interface FlowNode {
-  id: string;
-  type: string;
-  position: { x: number; y: number };
-  data: FlowNodeData;
-}
-
-export interface FlowEdge {
-  id: string;
-  source: string;
-  target: string;
-  sourceHandle?: string;
-  label?: string;
-  animated?: boolean;
-}
-
-export interface Automation {
-  id: string;
-  name: string;
-  description: string;
-  status: AutomationStatus;
-  triggerType: string;
-  flowDefinition: {
-    nodes: FlowNode[];
-    edges: FlowEdge[];
-  };
-  executionCount: number;
-  successCount: number;
-  failureCount: number;
-  lastRunAt?: string;
-  category: "SALES" | "MARKETING" | "EVENTS" | "ECOMMERCE" | "CUSTOM";
-  createdById?: string;
-  createdByName?: string;
-  managerId?: string;
-}
-
-export interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  contactId?: string;
-  contactName?: string;
-  contactCompany?: string;
-  dueDate: string;
-  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
-  status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
-  assignedToId: string;
-  assignedToName: string;
-  managerId?: string;
-}
-
-export interface EventItem {
-  id: string;
-  title: string;
-  description?: string;
-  type: "WEBINAR" | "WORKSHOP" | "DEMO" | "CONFERENCE";
-  eventDate: string;
-  durationMins: number;
-  locationUrl?: string;
-  maxCapacity?: number;
-  registeredCount: number;
-  confirmedCount: number;
-  attendedCount?: number;
-}
-
-export interface ChatMessage {
-  id: string;
-  contactId: string;
-  channel: "WHATSAPP" | "EMAIL" | "SMS";
-  direction: "INBOUND" | "OUTBOUND";
-  status: "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
-  senderName: string;
-  content: string;
-  mediaUrl?: string;
-  templateName?: string;
-  timestamp: string;
-  aiIntent?: "INTERESTED" | "NOT_INTERESTED" | "QUESTION" | "COMPLAINT";
-}
+export type CampaignStatus = "Draft" | "Scheduled" | "Running" | "Paused" | "Completed" | "Failed";
 
 export interface Campaign {
   id: string;
+  agencyId: string;
   name: string;
-  channel: "WHATSAPP" | "EMAIL";
-  segmentName: string;
-  status: "DRAFT" | "SCHEDULED" | "SENDING" | "COMPLETED";
+  folderId: string;
+  folderName: string;
+  channel: TemplateChannel;
+  templateId: string;
+  templateName: string;
+  status: CampaignStatus;
   scheduledAt?: string;
-  totalRecipients: number;
-  sentCount: number;
-  deliveredCount: number;
-  readCount: number;
-  clickedCount: number;
-  repliedCount?: number;
-  ownerId?: string;
-  ownerName?: string;
-  managerId?: string;
-}
-
-export interface MessageTemplate {
-  id: string;
-  name: string;
-  channel: "WHATSAPP" | "EMAIL";
-  subject?: string;
-  body: string;
-  category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
-  status: "APPROVED" | "PENDING_APPROVAL" | "REJECTED" | "DRAFT";
-  isCompanyWide: boolean;
   createdById: string;
   createdByName: string;
+  totalLeads: number;
+  sentCount: number;
+  deliveredCount: number;
+  openedCount?: number; // Email
+  repliedCount: number;
+  positiveResponses: number;
+  negativeResponses: number;
+  failedCount: number;
   createdAt: string;
-  approvedBy?: string;
 }
 
-export interface AuditLog {
+export interface WorkflowStep {
   id: string;
-  userId: string;
-  userName: string;
-  userRole: string;
-  action: string;
-  entityType: "LEAD" | "CAMPAIGN" | "WORKFLOW" | "USER" | "TEMPLATE" | "SETTINGS" | "INTEGRATION" | "ORGANIZATION";
-  entityName: string;
-  details: string;
+  stepNumber: number;
+  dayDelay: number;
+  channel: TemplateChannel;
+  templateId: string;
+  templateName: string;
+  actionTitle: string;
+}
+
+export interface Workflow {
+  id: string;
+  agencyId: string;
+  name: string;
+  description?: string;
+  trigger: "Lead Added" | "Added to List" | "Manual Enrollment";
+  steps: WorkflowStep[];
+  onPositiveResponse: "Status = Interested & Stop automated messages & Notify Employee" | "Custom";
+  onNegativeResponse: "Status = Not Interested & Stop Campaign" | "Custom";
+  onNoResponse: "Send Next Follow-up" | "Stop Workflow";
+  isActive: boolean;
+  createdById: string;
+  createdByName: string;
+  enrolledLeadsCount: number;
+  createdAt: string;
+}
+
+export interface SMTPSettings {
+  host: string;
+  port: string;
+  username: string;
+  password?: string;
+  encryption: "TLS" | "SSL" | "NONE";
+  fromName: string;
+  fromEmail: string;
+  isConfigured: boolean;
+}
+
+export interface WhatsAppAPISettings {
+  provider: "Meta WhatsApp Cloud API" | "Twilio" | "Custom Provider";
+  apiUrl: string;
+  apiKey: string;
+  accessToken: string;
+  phoneNumberId: string;
+  businessAccountId: string;
+  webhookUrl: string;
+  isConfigured: boolean;
+}
+
+export interface LeadResponse {
+  id: string;
+  leadId: string;
+  leadName: string;
+  leadPhone?: string;
+  leadEmail?: string;
+  campaignId?: string;
+  campaignName?: string;
+  channel: "WhatsApp" | "Email";
+  message: string;
+  sentiment: "Positive" | "Negative" | "Question";
   timestamp: string;
-  ipAddress?: string;
-}
-
-export interface SmartImportColumnMapping {
-  sourceColumn: string;
-  targetField: string;
-  confidence: number;
-  sampleValue?: string;
-}
-
-export interface DataHealthReport {
-  totalUploaded: number;
-  validContacts: number;
-  duplicateCount: number;
-  invalidPhoneCount: number;
-  missingNameCount: number;
-  suggestedFixes: string[];
+  handled: boolean;
 }

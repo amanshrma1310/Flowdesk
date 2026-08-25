@@ -5,185 +5,162 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
-  Phone,
   Mail,
-  Building,
-  MapPin,
-  Flame,
-  UserCheck,
   Send,
-  Plus,
-  CheckCircle2,
+  Building,
+  Phone,
+  Globe,
   Clock,
-  FileText,
+  CheckCircle2,
   Zap,
-  ShieldAlert,
   FolderKanban,
-  Sparkles,
-  Bot,
   User,
-  AlertTriangle,
+  Plus,
+  MessageSquare,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useFlowDesk } from "@/lib/store";
+import { LeadStatus } from "@/lib/types";
 
-export default function CustomerProfilePage() {
+const ALL_STATUSES: LeadStatus[] = [
+  "New",
+  "Contacted",
+  "Follow-up",
+  "Interested",
+  "Not Interested",
+  "Positive",
+  "Negative",
+  "Converted",
+  "Unresponsive",
+  "Unsubscribed",
+  "Blocked",
+];
+
+export default function LeadProfilePage() {
   const params = useParams();
   const router = useRouter();
-  const contactId = params.id as string;
+  const leadId = params.id as string;
+
   const {
-    allContacts,
-    leadJourneys,
-    automations,
-    updateContact,
-    sendMessage,
-    addTask,
-    toggleDoNotContact,
-    enrollLeadInWorkflow,
+    leads,
+    workflows,
+    templates,
+    updateLeadStatus,
+    addLeadActivity,
+    addLeadToWorkflow,
+    recordResponse,
+    currentUser,
   } = useFlowDesk();
 
-  const contact = allContacts.find((c) => c.id === contactId) || allContacts[0];
-  const journeySteps = leadJourneys[contact?.id] || [
-    {
-      id: "j-default",
-      title: "Lead Created & Ingested",
-      description: "Imported into system. Columns auto-mapped.",
-      timestamp: "Aug 20, 10:30 AM",
-      actor: "Smart Importer",
-      channel: "SYSTEM",
-      status: "COMPLETED",
-    },
-  ];
+  const lead = leads.find((l) => l.id === leadId) || leads[0];
 
-  // Actions
-  const [activeAction, setActiveAction] = useState<"NONE" | "WHATSAPP" | "EMAIL" | "TASK" | "ENROLL">("NONE");
-  const [whatsappMsg, setWhatsappMsg] = useState(`Hi ${contact?.name?.split(" ")[0] || "there"} 👋 Thanks for your interest in our services!`);
-  const [emailSubject, setEmailSubject] = useState(`Next Steps for ${contact?.company || "Your Project"}`);
-  const [emailBody, setEmailBody] = useState(`Hi ${contact?.name || ""},\n\nI am reaching out regarding your inquiry.`);
-  const [taskTitle, setTaskTitle] = useState(`Follow up with ${contact?.name}`);
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState(automations[0]?.id || "auto-1");
-  const [enrollAlert, setEnrollAlert] = useState<{ success: boolean; message: string } | null>(null);
+  // Quick Action Drawer
+  const [activeAction, setActiveAction] = useState<"NONE" | "EMAIL" | "WHATSAPP" | "WORKFLOW" | "RESPONSE">("NONE");
+  const [emailSubject, setEmailSubject] = useState(`Next Steps for ${lead?.company || "Your Business"}`);
+  const [emailBody, setEmailBody] = useState(`Hello ${lead?.name?.split(" ")[0] || "there"},\n\nWe wanted to share our solution with you.`);
+  const [whatsAppMsg, setWhatsAppMsg] = useState(`Hi ${lead?.name?.split(" ")[0] || "there"} 👋 We have a special growth solution for ${lead?.company || "you"}. Would you like to know more?\n\nReply:\n1 - Yes\n2 - No`);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState(workflows[0]?.id || "");
+  const [incomingResponseMsg, setIncomingResponseMsg] = useState("Yes, I am interested! Please share more details.");
+  const [responseSentiment, setResponseSentiment] = useState<"Positive" | "Negative" | "Question">("Positive");
 
-  if (!contact) {
+  if (!lead) {
     return (
-      <div className="p-10 text-center space-y-3">
-        <p className="text-slate-500">Lead not found.</p>
+      <div className="p-12 text-center space-y-3">
+        <p className="text-slate-500 text-xs">No lead found.</p>
         <Link href="/contacts">
-          <Button variant="outline" size="sm">Back to Leads</Button>
+          <Button size="sm" variant="outline">Back to Leads</Button>
         </Link>
       </div>
     );
   }
 
-  const handleSendWhatsApp = () => {
-    if (!whatsappMsg.trim()) return;
-    sendMessage(contact.id, whatsappMsg, "WHATSAPP");
-    setActiveAction("NONE");
-  };
-
   const handleSendEmail = () => {
     if (!emailBody.trim()) return;
-    sendMessage(contact.id, emailBody, "EMAIL");
+    addLeadActivity(lead.id, {
+      action: `Email Sent: ${emailSubject}`,
+      channel: "Email",
+      details: emailBody.slice(0, 100) + "...",
+      actor: currentUser?.name || "System",
+    });
+    updateLeadStatus(lead.id, "Contacted");
     setActiveAction("NONE");
   };
 
-  const handleCreateTask = () => {
-    if (!taskTitle.trim()) return;
-    addTask({
-      title: taskTitle,
-      contactId: contact.id,
-      contactName: contact.name,
-      contactCompany: contact.company,
-      dueDate: "Tomorrow, 10:00 AM",
-      priority: "HIGH",
+  const handleSendWhatsApp = () => {
+    if (!whatsAppMsg.trim()) return;
+    addLeadActivity(lead.id, {
+      action: "WhatsApp Message Sent",
+      channel: "WhatsApp",
+      details: whatsAppMsg.slice(0, 100) + "...",
+      actor: currentUser?.name || "System",
     });
+    updateLeadStatus(lead.id, "Contacted");
     setActiveAction("NONE");
   };
 
   const handleEnrollWorkflow = () => {
-    const res = enrollLeadInWorkflow(contact.id, selectedWorkflowId);
-    setEnrollAlert(res);
-    setTimeout(() => setEnrollAlert(null), 4000);
+    if (!selectedWorkflowId) return;
+    addLeadToWorkflow(lead.id, selectedWorkflowId);
+    setActiveAction("NONE");
+  };
+
+  const handleSimulateResponse = () => {
+    if (!incomingResponseMsg.trim()) return;
+    recordResponse(lead.id, incomingResponseMsg, responseSentiment, "WhatsApp");
     setActiveAction("NONE");
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      {/* Top Breadcrumb & Alerts */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => router.push("/contacts")}
-          className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span>Back to All Leads</span>
-        </button>
+    <div className="max-w-5xl mx-auto space-y-6">
+      {/* Top Navigation */}
+      <button
+        onClick={() => router.push("/contacts")}
+        className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        <span>Back to All Leads</span>
+      </button>
 
-        {/* Global Do Not Contact / Opt-out Switch */}
-        <button
-          onClick={() => toggleDoNotContact(contact.id)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-            contact.doNotContact
-              ? "bg-rose-100 text-rose-800 border border-rose-300 dark:bg-rose-950 dark:text-rose-300"
-              : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300"
-          }`}
-        >
-          <ShieldAlert className={`h-4 w-4 ${contact.doNotContact ? "text-rose-600" : "text-slate-500"}`} />
-          <span>{contact.doNotContact ? "Do Not Contact (Opted Out)" : "Mark Do Not Contact / STOP"}</span>
-        </button>
-      </div>
-
-      {enrollAlert && (
-        <div
-          className={`p-3.5 rounded-xl border text-xs font-bold flex items-center gap-2 animate-in fade-in ${
-            enrollAlert.success
-              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-              : "bg-amber-50 text-amber-800 border-amber-200"
-          }`}
-        >
-          {enrollAlert.success ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <AlertTriangle className="h-4 w-4 text-amber-600" />}
-          <span>{enrollAlert.message}</span>
-        </div>
-      )}
-
-      {/* Main Profile Header Card */}
-      <Card className="border-indigo-100 bg-gradient-to-r from-indigo-50/40 via-white to-purple-50/20 dark:from-indigo-950/20 dark:to-slate-900">
+      {/* Main Profile Card */}
+      <Card className="border-indigo-100 bg-gradient-to-r from-indigo-50/30 via-white to-purple-50/20 dark:from-indigo-950/20 dark:to-slate-900">
         <CardContent className="p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex items-start gap-4">
-              <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 text-white font-bold text-xl flex items-center justify-center shadow-md shrink-0">
-                {contact.name.slice(0, 2).toUpperCase()}
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 text-white font-bold text-lg flex items-center justify-center shadow-sm shrink-0">
+                {lead.name.slice(0, 2).toUpperCase()}
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                    {contact.name}
+                    {lead.name}
                   </h1>
-                  <Badge variant="purple" className="text-xs">
-                    {contact.status}
-                  </Badge>
-                  <Badge variant="destructive" className="text-xs flex items-center gap-1">
-                    <Flame className="h-3 w-3" /> Lead Score {contact.leadScore}
-                  </Badge>
+                  <select
+                    value={lead.status}
+                    onChange={(e) => updateLeadStatus(lead.id, e.target.value as LeadStatus)}
+                    className="text-xs font-bold rounded-md px-2 py-1 bg-white border border-slate-200 shadow-2xs dark:bg-slate-800"
+                  >
+                    {ALL_STATUSES.map((st) => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
                 </div>
 
-                <p className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
-                  {contact.title && <span className="font-semibold text-slate-700 dark:text-slate-300">{contact.title}</span>}
-                  {contact.company && (
-                    <span className="flex items-center gap-1">
+                <p className="text-xs text-slate-500 flex items-center gap-3 flex-wrap">
+                  {lead.company && (
+                    <span className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
                       <Building className="h-3.5 w-3.5 text-slate-400" />
-                      {contact.company}
+                      {lead.company}
                     </span>
                   )}
-                  {contact.location && (
-                    <span className="flex items-center gap-1">
-                      <MapPin className="h-3.5 w-3.5 text-slate-400" />
-                      {contact.location}
+                  {lead.folderName && (
+                    <span className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      <FolderKanban className="h-3 w-3 text-slate-400" />
+                      {lead.folderName}
                     </span>
                   )}
                 </p>
@@ -191,22 +168,42 @@ export default function CustomerProfilePage() {
                 <div className="flex items-center gap-4 pt-1 font-mono text-xs text-slate-600 dark:text-slate-300">
                   <span className="flex items-center gap-1 text-emerald-600 font-semibold">
                     <Phone className="h-3.5 w-3.5" />
-                    {contact.phone || "No phone added"}
+                    {lead.whatsApp || lead.phone || "No phone"}
                   </span>
                   <span className="flex items-center gap-1">
                     <Mail className="h-3.5 w-3.5 text-slate-400" />
-                    {contact.email || "No email added"}
+                    {lead.email || "No email"}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Quick Actions */}
+            {/* Quick Action Triggers */}
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
-                onClick={() => setActiveAction(activeAction === "ENROLL" ? "NONE" : "ENROLL")}
-                className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold gap-1.5 shadow-xs"
+                onClick={() => setActiveAction(activeAction === "WHATSAPP" ? "NONE" : "WHATSAPP")}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold gap-1.5 shadow-xs"
+              >
+                <Send className="h-3.5 w-3.5" />
+                <span>Send WhatsApp</span>
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setActiveAction(activeAction === "EMAIL" ? "NONE" : "EMAIL")}
+                className="text-xs font-bold gap-1.5 border-sky-300 text-sky-700 bg-sky-50 hover:bg-sky-100"
+              >
+                <Mail className="h-3.5 w-3.5" />
+                <span>Send Email</span>
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setActiveAction(activeAction === "WORKFLOW" ? "NONE" : "WORKFLOW")}
+                className="text-xs font-bold gap-1.5 border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100"
               >
                 <Zap className="h-3.5 w-3.5" />
                 <span>Add to Workflow</span>
@@ -214,78 +211,33 @@ export default function CustomerProfilePage() {
 
               <Button
                 size="sm"
-                onClick={() => setActiveAction(activeAction === "WHATSAPP" ? "NONE" : "WHATSAPP")}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold gap-1.5 shadow-xs"
+                variant="ghost"
+                onClick={() => setActiveAction(activeAction === "RESPONSE" ? "NONE" : "RESPONSE")}
+                className="text-xs font-semibold gap-1 text-slate-500"
               >
-                <Send className="h-3.5 w-3.5" />
-                <span>WhatsApp</span>
-              </Button>
-
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setActiveAction(activeAction === "EMAIL" ? "NONE" : "EMAIL")}
-                className="text-xs font-semibold gap-1.5 border-slate-300"
-              >
-                <Mail className="h-3.5 w-3.5 text-sky-600" />
-                <span>Email</span>
-              </Button>
-
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setActiveAction(activeAction === "TASK" ? "NONE" : "TASK")}
-                className="text-xs font-semibold gap-1.5 border-slate-300"
-              >
-                <CheckCircle2 className="h-3.5 w-3.5 text-amber-600" />
-                <span>Task</span>
+                <MessageSquare className="h-3.5 w-3.5" />
+                <span>Simulate Reply</span>
               </Button>
             </div>
           </div>
 
-          {/* Action Drawer */}
+          {/* Quick Action Drawer Form */}
           {activeAction !== "NONE" && (
             <div className="mt-5 p-4 rounded-xl border border-slate-200 bg-white shadow-xs space-y-3 dark:bg-slate-900 dark:border-slate-800 animate-in fade-in">
-              {activeAction === "ENROLL" && (
-                <div className="space-y-3">
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                    <Zap className="h-4 w-4 text-purple-600" />
-                    <span>Enroll Lead in Automated Communication Workflow</span>
-                  </p>
-                  <select
-                    value={selectedWorkflowId}
-                    onChange={(e) => setSelectedWorkflowId(e.target.value)}
-                    className="w-full h-9 rounded-lg border border-slate-200 text-xs px-3 bg-slate-50 dark:bg-slate-950 dark:border-slate-800"
-                  >
-                    {automations.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name} ({a.category})
-                      </option>
-                    ))}
-                  </select>
-                  <div className="flex justify-end gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setActiveAction("NONE")}>Cancel</Button>
-                    <Button size="sm" onClick={handleEnrollWorkflow} className="bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs">
-                      Confirm & Start Workflow
-                    </Button>
-                  </div>
-                </div>
-              )}
-
               {activeAction === "WHATSAPP" && (
-                <div className="space-y-2">
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <div className="space-y-2 text-xs">
+                  <p className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <Send className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Send Official WhatsApp Message to {contact.phone}</span>
+                    <span>Send WhatsApp Marketing Message</span>
                   </p>
                   <textarea
-                    value={whatsappMsg}
-                    onChange={(e) => setWhatsappMsg(e.target.value)}
-                    className="w-full h-20 p-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 dark:bg-slate-950 dark:border-slate-800"
+                    value={whatsAppMsg}
+                    onChange={(e) => setWhatsAppMsg(e.target.value)}
+                    className="w-full h-24 p-2.5 rounded-lg border border-slate-200 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 dark:bg-slate-950"
                   />
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="ghost" onClick={() => setActiveAction("NONE")}>Cancel</Button>
-                    <Button size="sm" onClick={handleSendWhatsApp} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs">
+                    <Button size="sm" onClick={handleSendWhatsApp} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
                       Send WhatsApp Now
                     </Button>
                   </div>
@@ -293,39 +245,80 @@ export default function CustomerProfilePage() {
               )}
 
               {activeAction === "EMAIL" && (
-                <div className="space-y-2">
+                <div className="space-y-2 text-xs">
                   <Input
                     placeholder="Email Subject"
                     value={emailSubject}
                     onChange={(e) => setEmailSubject(e.target.value)}
-                    className="text-xs"
                   />
                   <textarea
                     value={emailBody}
                     onChange={(e) => setEmailBody(e.target.value)}
-                    className="w-full h-24 p-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 dark:bg-slate-950 dark:border-slate-800"
+                    className="w-full h-24 p-2.5 rounded-lg border border-slate-200 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 bg-slate-50 dark:bg-slate-950"
                   />
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="ghost" onClick={() => setActiveAction("NONE")}>Cancel</Button>
-                    <Button size="sm" onClick={handleSendEmail} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs">
-                      Send Email
+                    <Button size="sm" onClick={handleSendEmail} className="bg-sky-600 hover:bg-sky-700 text-white font-bold">
+                      Send Email Now
                     </Button>
                   </div>
                 </div>
               )}
 
-              {activeAction === "TASK" && (
-                <div className="space-y-2">
-                  <Input
-                    placeholder="Task Description"
-                    value={taskTitle}
-                    onChange={(e) => setTaskTitle(e.target.value)}
-                    className="text-xs"
-                  />
-                  <div className="flex justify-end gap-2">
+              {activeAction === "WORKFLOW" && (
+                <div className="space-y-2 text-xs">
+                  <p className="font-bold text-slate-800 dark:text-slate-200">
+                    Enroll in Automated Sequence:
+                  </p>
+                  <select
+                    value={selectedWorkflowId}
+                    onChange={(e) => setSelectedWorkflowId(e.target.value)}
+                    className="w-full h-9 rounded-lg border border-slate-200 text-xs px-3 bg-white"
+                  >
+                    {workflows.map((w) => (
+                      <option key={w.id} value={w.id}>{w.name} ({w.steps.length} Steps)</option>
+                    ))}
+                  </select>
+                  <div className="flex justify-end gap-2 pt-1">
                     <Button size="sm" variant="ghost" onClick={() => setActiveAction("NONE")}>Cancel</Button>
-                    <Button size="sm" onClick={handleCreateTask} className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs">
-                      Create Task
+                    <Button size="sm" onClick={handleEnrollWorkflow} className="bg-purple-600 hover:bg-purple-700 text-white font-bold">
+                      Confirm Enrollment
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {activeAction === "RESPONSE" && (
+                <div className="space-y-2 text-xs">
+                  <p className="font-bold text-slate-800 dark:text-slate-200">
+                    Simulate Customer Inbound Response (PDF Page 12 Response-Based Automation):
+                  </p>
+                  <Input
+                    value={incomingResponseMsg}
+                    onChange={(e) => setIncomingResponseMsg(e.target.value)}
+                    placeholder="Customer message text..."
+                  />
+                  <div className="flex items-center gap-2 pt-1">
+                    <label className="font-semibold text-slate-600">Response Sentiment:</label>
+                    <button
+                      type="button"
+                      onClick={() => setResponseSentiment("Positive")}
+                      className={`px-2.5 py-1 rounded text-xs font-bold ${responseSentiment === "Positive" ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"}`}
+                    >
+                      Positive (Interested)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setResponseSentiment("Negative")}
+                      className={`px-2.5 py-1 rounded text-xs font-bold ${responseSentiment === "Negative" ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-600"}`}
+                    >
+                      Negative (Not Interested)
+                    </button>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button size="sm" variant="ghost" onClick={() => setActiveAction("NONE")}>Cancel</Button>
+                    <Button size="sm" onClick={handleSimulateResponse} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
+                      Trigger Response Flow
                     </Button>
                   </div>
                 </div>
@@ -335,107 +328,94 @@ export default function CustomerProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Main Grid: 3-Point Ownership, Lead List & Lead Journey */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: 3-Point Ownership & Folder Box */}
-        <div className="space-y-6">
-          {/* Ownership Box */}
+      {/* Main Grid: Details & Lead Activity Timeline (PDF Page 14) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Left: Lead Details */}
+        <div className="space-y-4">
           <Card>
-            <CardHeader className="p-5 pb-3">
-              <CardTitle className="text-sm font-bold flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-indigo-600" />
-                <span>3-Point Ownership</span>
-              </CardTitle>
+            <CardHeader className="p-5 pb-2">
+              <CardTitle className="text-sm font-bold">Lead Information</CardTitle>
             </CardHeader>
-            <CardContent className="p-5 pt-0 space-y-3 text-xs">
-              <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100 space-y-1 dark:bg-slate-800 dark:border-slate-700">
-                <span className="text-[10px] text-slate-400 block uppercase font-bold">Created By</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">{contact.createdByName}</span>
+            <CardContent className="p-5 pt-2 space-y-3 text-xs">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase">Assigned Employee</span>
+                <p className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">{lead.assignedEmployeeName}</p>
+                {lead.managerName && <p className="text-[10px] text-slate-400">Pod Mgr: {lead.managerName}</p>}
               </div>
-              <div className="p-2.5 bg-indigo-50/60 rounded-lg border border-indigo-100 space-y-1 dark:bg-indigo-950/40 dark:border-indigo-900">
-                <span className="text-[10px] text-indigo-600 block uppercase font-bold">Assigned Owner (Sales Rep)</span>
-                <span className="font-bold text-indigo-900 dark:text-indigo-200">{contact.ownerName}</span>
+
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase">Lead Source</span>
+                <p className="font-semibold text-indigo-600 mt-0.5">{lead.source}</p>
               </div>
-              <div className="p-2.5 bg-purple-50/60 rounded-lg border border-purple-100 space-y-1 dark:bg-purple-950/40 dark:border-purple-900">
-                <span className="text-[10px] text-purple-600 block uppercase font-bold">Pod Manager</span>
-                <span className="font-bold text-purple-900 dark:text-purple-200">{contact.managerName}</span>
-              </div>
-              {contact.leadListName && (
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100 space-y-1 dark:bg-slate-800 dark:border-slate-700">
-                  <span className="text-[10px] text-slate-400 block uppercase font-bold flex items-center gap-1">
-                    <FolderKanban className="h-3 w-3" /> Lead Folder
+
+              {lead.notes && (
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Notes</span>
+                  <p className="text-slate-600 dark:text-slate-300 mt-0.5 bg-slate-50 p-2 rounded-lg border border-slate-100 dark:bg-slate-800 dark:border-slate-700">
+                    {lead.notes}
+                  </p>
+                </div>
+              )}
+
+              {lead.activeWorkflowName && (
+                <div className="p-2.5 bg-purple-50 rounded-lg border border-purple-200 space-y-1">
+                  <span className="text-[10px] font-bold text-purple-700 uppercase flex items-center gap-1">
+                    <Zap className="h-3 w-3" /> Active Workflow
                   </span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">{contact.leadListName}</span>
+                  <p className="font-bold text-purple-900 text-xs">{lead.activeWorkflowName}</p>
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Right 2 Columns: "LEAD JOURNEY" Graphical Single Source of Truth */}
-        <div className="lg:col-span-2">
+        {/* Right 2 Columns: Lead Activity Timeline (PDF Page 14) */}
+        <div className="md:col-span-2">
           <Card>
             <CardHeader className="p-5 pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base font-bold flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-purple-600" />
-                    <span>The Complete Lead Journey</span>
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Single source of truth tracking ingestion, automations, AI classification and conversions.
-                  </CardDescription>
-                </div>
-                {contact.activeWorkflowName && (
-                  <Badge variant="purple" className="text-[10px]">
-                    Flow: {contact.activeWorkflowName}
-                  </Badge>
-                )}
-              </div>
+              <CardTitle className="text-sm font-bold flex items-center gap-2">
+                <Clock className="h-4 w-4 text-indigo-600" />
+                <span>Lead Activity Timeline</span>
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Complete chronological activity history for this lead.
+              </CardDescription>
             </CardHeader>
             <CardContent className="p-5 pt-2">
-              <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-[2px] before:bg-indigo-100 dark:before:bg-slate-800">
-                {journeySteps.map((step) => (
-                  <div key={step.id} className="relative group">
+              <div className="relative pl-6 space-y-5 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-200 dark:before:bg-slate-800">
+                {lead.activities?.map((act) => (
+                  <div key={act.id} className="relative group">
                     <div
-                      className={`absolute -left-6 top-1 h-5 w-5 rounded-full border-2 border-white flex items-center justify-center text-white shadow-xs ${
-                        step.channel === "WHATSAPP"
+                      className={`absolute -left-6 top-1 h-5 w-5 rounded-full border-2 border-white flex items-center justify-center text-white text-[10px] shadow-xs ${
+                        act.channel === "WhatsApp"
                           ? "bg-emerald-600"
-                          : step.channel === "EMAIL"
+                          : act.channel === "Email"
                           ? "bg-sky-600"
-                          : step.channel === "AI"
+                          : act.channel === "Workflow"
                           ? "bg-purple-600"
-                          : step.channel === "TASK"
-                          ? "bg-amber-600"
                           : "bg-indigo-600"
                       }`}
                     >
-                      {step.channel === "AI" ? (
-                        <Bot className="h-2.5 w-2.5" />
-                      ) : step.channel === "WHATSAPP" ? (
+                      {act.channel === "WhatsApp" ? (
                         <Send className="h-2.5 w-2.5" />
-                      ) : step.channel === "EMAIL" ? (
+                      ) : act.channel === "Email" ? (
                         <Mail className="h-2.5 w-2.5" />
                       ) : (
                         <CheckCircle2 className="h-2.5 w-2.5" />
                       )}
                     </div>
 
-                    <div className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-slate-50 transition-colors space-y-1 dark:border-slate-800 dark:bg-slate-900/50">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                          {step.title}
-                        </h4>
-                        <span className="text-[10px] text-slate-400 font-medium">
-                          {step.timestamp}
-                        </span>
+                    <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100 space-y-1 dark:bg-slate-800/60 dark:border-slate-700">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-900 dark:text-slate-100">{act.action}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{act.timestamp}</span>
                       </div>
-                      <p className="text-xs text-slate-600 leading-relaxed dark:text-slate-300">
-                        {step.description}
-                      </p>
-                      <p className="text-[10px] text-slate-400 pt-0.5">
-                        Actor: <strong className="text-slate-600 dark:text-slate-300">{step.actor}</strong>
-                      </p>
+                      {act.details && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                          {act.details}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-slate-400">Actor: <strong>{act.actor}</strong></p>
                     </div>
                   </div>
                 ))}

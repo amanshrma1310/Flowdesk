@@ -7,12 +7,9 @@ import {
   Plus,
   Users,
   UploadCloud,
-  Zap,
-  Calendar,
+  Megaphone,
   ArrowRight,
   Sparkles,
-  FileSpreadsheet,
-  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -22,23 +19,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useFlowDesk } from "@/lib/store";
 
 export default function LeadListsPage() {
-  const { leadLists, createLeadList, automations } = useFlowDesk();
+  const { folders, createFolder, leads } = useFlowDesk();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [listName, setListName] = useState("");
-  const [listDesc, setListDesc] = useState("");
+  const [folderName, setFolderName] = useState("");
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!listName.trim()) return;
-    createLeadList(listName, listDesc);
+    if (!folderName.trim()) return;
+    createFolder(folderName);
     setIsCreateOpen(false);
-    setListName("");
-    setListDesc("");
+    setFolderName("");
   };
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      {/* Top Header */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -46,19 +41,19 @@ export default function LeadListsPage() {
               Lead Folders & Lists
             </h1>
             <Badge variant="purple" className="text-xs font-bold">
-              {leadLists.length} Folders
+              {folders.length} Folders
             </Badge>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Organize bulk imports and marketing audiences into isolated folders with dedicated automations.
+            Organize bulk uploads by source (e.g. Facebook Leads - August, Exhibition Leads) and target entire lists for marketing campaigns.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <Link href="/contacts/import">
-            <Button variant="outline" size="sm" className="text-xs font-semibold gap-1.5 border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:text-indigo-300">
+            <Button variant="outline" size="sm" className="text-xs font-semibold gap-1.5 border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100">
               <UploadCloud className="h-4 w-4" />
-              <span>Import to List</span>
+              <span>Import to Folder</span>
             </Button>
           </Link>
           <Button
@@ -72,100 +67,125 @@ export default function LeadListsPage() {
         </div>
       </div>
 
-      {/* Lists Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {leadLists.map((list) => (
-          <Card key={list.id} className="hover:border-indigo-300 hover:shadow-md transition-all flex flex-col justify-between">
-            <CardHeader className="p-5 pb-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center dark:bg-indigo-950 dark:text-indigo-400">
-                  <FolderKanban className="h-5 w-5" />
-                </div>
-                <Badge variant="secondary" className="text-xs font-bold">
-                  {list.leadCount} Leads
-                </Badge>
-              </div>
-
-              <CardTitle className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                {list.name}
-              </CardTitle>
-              {list.description && (
-                <CardDescription className="text-xs text-slate-500 mt-1 leading-relaxed line-clamp-2">
-                  {list.description}
-                </CardDescription>
-              )}
-            </CardHeader>
-
-            <CardContent className="p-5 pt-0 space-y-3 text-xs">
-              <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100 space-y-1 text-[11px] text-slate-500 dark:bg-slate-800 dark:border-slate-700">
-                <p className="flex items-center justify-between">
-                  <span>Created by:</span>
-                  <strong className="text-slate-700 dark:text-slate-300">{list.createdByName}</strong>
-                </p>
-                <p className="flex items-center justify-between">
-                  <span>Source:</span>
-                  <span className="font-semibold text-indigo-600">{list.source}</span>
-                </p>
-                {list.assignedWorkflowName && (
-                  <p className="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-700">
-                    <span className="flex items-center gap-1 text-purple-600 font-semibold">
-                      <Zap className="h-3 w-3" /> Active Flow:
-                    </span>
-                    <span className="truncate max-w-[140px] text-slate-700 dark:text-slate-300">{list.assignedWorkflowName}</span>
-                  </p>
-                )}
-              </div>
-
-              <Link href={`/contacts?list=${list.id}`}>
-                <Button size="sm" variant="outline" className="w-full text-xs font-semibold gap-1.5">
-                  <span>View Leads in Folder</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
+      {/* Folders Grid */}
+      {folders.length === 0 ? (
+        <Card className="py-12 text-center">
+          <CardContent className="space-y-3">
+            <FolderKanban className="h-10 w-10 text-slate-300 mx-auto" />
+            <p className="text-xs text-slate-500 font-medium">
+              No lead folders created yet. Upload an Excel sheet to auto-create a folder or create one manually.
+            </p>
+            <div className="flex justify-center gap-2">
+              <Button size="sm" onClick={() => setIsCreateOpen(true)} className="bg-indigo-600 text-white text-xs">
+                Create Folder
+              </Button>
+              <Link href="/contacts/import">
+                <Button size="sm" variant="outline" className="text-xs">
+                  Import Spreadsheet
                 </Button>
               </Link>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {folders.map((folder) => {
+            const folderLeads = leads.filter((l) => l.folderId === folder.id);
+            const newCount = folderLeads.filter((l) => l.status === "New").length;
+            const contactedCount = folderLeads.filter((l) => l.status === "Contacted").length;
+            const interestedCount = folderLeads.filter((l) => l.status === "Interested" || l.status === "Positive").length;
+            const notInterestedCount = folderLeads.filter((l) => l.status === "Not Interested" || l.status === "Negative").length;
+            const convertedCount = folderLeads.filter((l) => l.status === "Converted").length;
 
-      {/* Create List Dialog */}
+            return (
+              <Card key={folder.id} className="hover:border-indigo-300 hover:shadow-md transition-all flex flex-col justify-between">
+                <CardHeader className="p-5 pb-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center dark:bg-indigo-950 dark:text-indigo-400">
+                      <FolderKanban className="h-5 w-5" />
+                    </div>
+                    <Badge variant="secondary" className="text-xs font-bold">
+                      {folderLeads.length} Total Leads
+                    </Badge>
+                  </div>
+
+                  <CardTitle className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    {folder.name}
+                  </CardTitle>
+                  <CardDescription className="text-[11px] text-slate-400">
+                    Created by {folder.createdByName} • {folder.createdAt}
+                  </CardDescription>
+                </CardHeader>
+
+                <CardContent className="p-5 pt-0 space-y-3 text-xs">
+                  {/* Status Breakdown Table matching PDF Page 7 */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1.5 text-[11px] dark:bg-slate-800 dark:border-slate-700">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">New:</span>
+                      <strong className="text-slate-800 dark:text-slate-200">{newCount}</strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Contacted:</span>
+                      <strong className="text-slate-800 dark:text-slate-200">{contactedCount}</strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Interested:</span>
+                      <strong className="text-emerald-600">{interestedCount}</strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Not Interested:</span>
+                      <strong className="text-rose-600">{notInterestedCount}</strong>
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-700">
+                      <span className="text-slate-500">Converted:</span>
+                      <strong className="text-indigo-600 font-bold">{convertedCount}</strong>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1">
+                    <Link href={`/campaigns?folderId=${folder.id}`}>
+                      <Button size="sm" className="w-full text-xs font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs">
+                        <Megaphone className="h-3.5 w-3.5" />
+                        <span>Select Entire List for Campaign</span>
+                      </Button>
+                    </Link>
+                    <Link href={`/contacts?folder=${folder.id}`}>
+                      <Button size="sm" variant="outline" className="w-full text-xs font-semibold gap-1">
+                        <span>View Leads</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Create Folder Dialog */}
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent className="max-w-md bg-white dark:bg-slate-900">
           <DialogHeader>
-            <DialogTitle className="text-base font-bold">Create New Lead Folder / List</DialogTitle>
+            <DialogTitle className="text-base font-bold">Create Lead Folder / List</DialogTitle>
             <DialogDescription className="text-xs">
-              Organize upcoming marketing campaigns and exhibition inquiries into a named folder.
+              Examples: &quot;Facebook Leads - August&quot;, &quot;Google Leads - August&quot;, &quot;Exhibition Leads&quot;, &quot;Website Leads&quot;.
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleCreate} className="space-y-3 pt-2">
             <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                Folder Name *
-              </label>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">Folder Name *</label>
               <Input
                 required
-                placeholder="e.g. Real Estate Leads – Punjab"
-                value={listName}
-                onChange={(e) => setListName(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                Description
-              </label>
-              <textarea
-                placeholder="e.g. Inquiries collected from August exhibition in Ludhiana..."
-                value={listDesc}
-                onChange={(e) => setListDesc(e.target.value)}
-                className="w-full h-20 p-2.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 dark:bg-slate-950 dark:border-slate-800"
+                placeholder="e.g. Facebook Leads - August 2026"
+                value={folderName}
+                onChange={(e) => setFolderName(e.target.value)}
               />
             </div>
 
             <DialogFooter className="pt-3">
-              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
-                Cancel
-              </Button>
+              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
               <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
                 Create Folder
               </Button>

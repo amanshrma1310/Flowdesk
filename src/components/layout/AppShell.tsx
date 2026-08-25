@@ -8,10 +8,10 @@ import { AdminOnboardingModal } from "@/components/auth/AdminOnboardingModal";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { isAuthenticated, organization } = useFlowDesk();
+  const { currentUser, organization } = useFlowDesk();
 
-  // If not authenticated or agency not created, display the Admin Login & Agency Creation wizard
-  if (!isAuthenticated || !organization) {
+  // If no user is signed in or no agency exists, display the clean Create / Join Agency portal
+  if (!currentUser || !organization) {
     return <AdminOnboardingModal />;
   }
 

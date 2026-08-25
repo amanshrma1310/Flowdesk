@@ -3,302 +3,456 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import {
-  Sparkles,
-  Flame,
+  Users,
+  Briefcase,
+  User,
+  Megaphone,
+  Mail,
+  Send,
+  CheckCircle2,
+  AlertCircle,
   Clock,
-  Calendar,
-  MessageSquare,
+  TrendingUp,
+  Plus,
+  UploadCloud,
+  FileText,
   Zap,
   ArrowRight,
-  TrendingUp,
-  UploadCloud,
-  CheckCircle2,
-  PhoneCall,
-  Send,
-  Plus,
-  Filter,
-  Check,
-  Building2,
-  Users,
   Shield,
+  MessageSquare,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useFlowDesk } from "@/lib/store";
-import { formatCurrency } from "@/lib/utils";
 
 export default function DashboardPage() {
-  const { contacts, tasks, automations, events, deals, currentUser, organization, toggleTaskStatus } = useFlowDesk();
-  const [quickFollowupSuccess, setQuickFollowupSuccess] = useState<string | null>(null);
+  const {
+    currentUser,
+    organization,
+    users,
+    leads,
+    scopedLeads,
+    campaigns,
+    workflows,
+    responses,
+  } = useFlowDesk();
 
-  const hotLeads = contacts.filter((c) => c.leadScore >= 80 || c.tags.some((t) => t.name === "Hot Lead"));
-  const pendingTasks = tasks.filter((t) => t.status === "PENDING");
-  const activeAutomations = automations.filter((a) => a.status === "ACTIVE");
-  const totalPipeline = deals.reduce((acc, d) => acc + d.value, 0);
+  if (!currentUser || !organization) return null;
 
-  const handleQuickWhatsApp = (contactName: string, id: string) => {
-    setQuickFollowupSuccess(id);
-    setTimeout(() => setQuickFollowupSuccess(null), 3000);
-  };
+  const isAdmin = currentUser.role === "ADMIN";
+  const isManager = currentUser.role === "MANAGER";
+  const isEmployee = currentUser.role === "EMPLOYEE";
+
+  // Common metrics
+  const managers = users.filter((u) => u.role === "MANAGER");
+  const employees = users.filter((u) => u.role === "EMPLOYEE");
+  const activeCampaigns = campaigns.filter((c) => c.status === "Running");
+
+  // Manager specific metrics
+  const myTeamEmployees = employees.filter((e) => e.managerId === currentUser.id);
+
+  // Employee specific metrics
+  const myFollowups = scopedLeads.filter((l) => l.status === "Follow-up" || l.status === "New");
+  const myInterestedLeads = scopedLeads.filter((l) => l.status === "Interested" || l.status === "Positive");
+  const myConvertedLeads = scopedLeads.filter((l) => l.status === "Converted");
+
+  // Aggregates for Admin
+  const totalEmailsSent = campaigns
+    .filter((c) => c.channel === "Email")
+    .reduce((acc, c) => acc + c.sentCount, 0);
+
+  const totalWhatsAppSent = campaigns
+    .filter((c) => c.channel === "WhatsApp")
+    .reduce((acc, c) => acc + c.sentCount, 0);
+
+  const totalSuccessfulResponses = responses.filter((r) => r.sentiment === "Positive").length;
+  const totalFailedMessages = campaigns.reduce((acc, c) => acc + c.failedCount, 0);
+  const activeFollowupsCount = leads.filter((l) => l.status === "Follow-up").length;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Top Banner: Attention-First "What needs attention today?" */}
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Top Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-6 shadow-md relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-semibold mb-2">
-              <Sparkles className="h-3.5 w-3.5 text-indigo-300" />
-              <span>Agency: {organization?.name || "FlowDesk AI"}</span>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-semibold mb-2">
+              <Shield className="h-3 w-3 text-indigo-300" />
+              <span>{currentUser.role} View • {organization.name}</span>
             </div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white">
-              Good Morning, {currentUser.name.split(" ")[0]} 👋
+              Welcome back, {currentUser.name} 👋
             </h1>
-            <p className="text-slate-300 text-sm mt-1 max-w-xl">
-              {contacts.length === 0
-                ? "Your new agency workspace is clean and ready. Import your leads or invite your sales team to get started."
-                : `You have ${pendingTasks.length + hotLeads.length} items requiring attention today.`}
+            <p className="text-slate-300 text-xs mt-1">
+              {isAdmin && "Complete administrative overview across all managers, employees, leads, and marketing campaigns."}
+              {isManager && `Team-focused dashboard for your sales pod (${myTeamEmployees.length} assigned employees).`}
+              {isEmployee && "Your personal marketing console: manage assigned leads, follow-ups, and outbound campaigns."}
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <Link href="/contacts/import">
-              <Button className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold gap-1.5 shadow-sm">
+              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold gap-1.5 shadow-sm">
                 <UploadCloud className="h-4 w-4" />
-                <span>Smart Import Data</span>
+                <span>Import Leads</span>
               </Button>
             </Link>
-            <Link href="/automations">
-              <Button variant="outline" className="text-xs border-slate-700 bg-slate-800/80 text-slate-200 hover:bg-slate-700 hover:text-white">
-                <Zap className="h-4 w-4 text-purple-400" />
-                <span>Automations ({activeAutomations.length})</span>
+            <Link href="/campaigns">
+              <Button size="sm" variant="outline" className="text-xs border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700">
+                <Megaphone className="h-4 w-4 text-purple-400" />
+                <span>Campaigns</span>
               </Button>
             </Link>
           </div>
         </div>
       </div>
 
-      {/* Fresh Agency Setup Checklist if 0 contacts */}
-      {contacts.length === 0 && (
-        <Card className="border-indigo-200 bg-gradient-to-r from-indigo-50/50 via-white to-purple-50/30 dark:bg-slate-900 dark:border-slate-800">
-          <CardContent className="p-6 space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-indigo-600" />
-                <span>Get Started with {organization?.name || "Your Agency"}</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Complete these 3 simple steps to launch your automated marketing machine:
-              </p>
-            </div>
+      {/* =========================================================================
+          1. ADMIN DASHBOARD (PDF Page 4)
+         ========================================================================= */}
+      {isAdmin && (
+        <div className="space-y-6">
+          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Admin Global Overview
+          </h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl border border-indigo-100 bg-white space-y-2 dark:bg-slate-800 dark:border-slate-700">
-                <div className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 font-bold flex items-center justify-center text-xs dark:bg-indigo-950 dark:text-indigo-400">
-                  1
-                </div>
-                <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">Smart Import Contacts</h4>
-                <p className="text-[11px] text-slate-500">
-                  Drag & drop your Excel/CSV contacts sheet, or scan screenshots.
-                </p>
-                <Link href="/contacts/import" className="block pt-1">
-                  <Button size="sm" className="w-full text-xs font-semibold bg-indigo-600 text-white">
-                    Import Excel / CSV
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Total Users</span>
+                <p className="text-2xl font-bold text-slate-900 mt-1 dark:text-white">{users.length}</p>
+                <p className="text-[11px] text-slate-400">{managers.length} Mgrs • {employees.length} Emps</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Total Leads</span>
+                <p className="text-2xl font-bold text-indigo-600 mt-1">{leads.length}</p>
+                <p className="text-[11px] text-slate-400">All company leads</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Active Campaigns</span>
+                <p className="text-2xl font-bold text-purple-600 mt-1">{activeCampaigns.length}</p>
+                <p className="text-[11px] text-slate-400">{campaigns.length} total campaigns</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Emails Sent</span>
+                <p className="text-2xl font-bold text-sky-600 mt-1">{totalEmailsSent}</p>
+                <p className="text-[11px] text-slate-400">SMTP Outbound</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">WhatsApp Sent</span>
+                <p className="text-2xl font-bold text-emerald-600 mt-1">{totalWhatsAppSent}</p>
+                <p className="text-[11px] text-slate-400">Official Cloud API</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Successful Responses</span>
+                <p className="text-2xl font-bold text-emerald-600 mt-1">{totalSuccessfulResponses}</p>
+                <p className="text-[11px] text-slate-400">Positive replies</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Active Follow-ups</span>
+                <p className="text-2xl font-bold text-amber-600 mt-1">{activeFollowupsCount}</p>
+                <p className="text-[11px] text-slate-400">Scheduled steps</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Failed Messages</span>
+                <p className="text-2xl font-bold text-rose-600 mt-1">{totalFailedMessages}</p>
+                <p className="text-[11px] text-slate-400">Requires retry</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Quick Admin Action Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="hover:border-indigo-300 transition-colors">
+              <CardHeader className="p-5 pb-2">
+                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                  <Users className="h-4 w-4 text-indigo-600" />
+                  <span>Manage Users & Teams</span>
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Create managers, add employees, and assign reporting lines.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-5 pt-2">
+                <Link href="/admin/organization">
+                  <Button size="sm" variant="outline" className="w-full text-xs font-semibold gap-1.5">
+                    <span>Manage Hierarchy</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </Button>
                 </Link>
-              </div>
+              </CardContent>
+            </Card>
 
-              <div className="p-4 rounded-xl border border-purple-100 bg-white space-y-2 dark:bg-slate-800 dark:border-slate-700">
-                <div className="h-8 w-8 rounded-lg bg-purple-50 text-purple-600 font-bold flex items-center justify-center text-xs dark:bg-purple-950 dark:text-purple-400">
-                  2
-                </div>
-                <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">Add Managers & Reps</h4>
-                <p className="text-[11px] text-slate-500">
-                  Create sales pods and assign employees under managers.
-                </p>
-                <Link href="/admin/organization" className="block pt-1">
-                  <Button size="sm" variant="outline" className="w-full text-xs font-semibold border-purple-200 text-purple-700">
-                    Manage Team
+            <Card className="hover:border-indigo-300 transition-colors">
+              <CardHeader className="p-5 pb-2">
+                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-sky-600" />
+                  <span>SMTP & WhatsApp APIs</span>
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Configure and test email credentials and WhatsApp API tokens.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-5 pt-2">
+                <Link href="/admin/settings">
+                  <Button size="sm" variant="outline" className="w-full text-xs font-semibold gap-1.5">
+                    <span>Configure Settings</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </Button>
                 </Link>
-              </div>
+              </CardContent>
+            </Card>
 
-              <div className="p-4 rounded-xl border border-emerald-100 bg-white space-y-2 dark:bg-slate-800 dark:border-slate-700">
-                <div className="h-8 w-8 rounded-lg bg-emerald-50 text-emerald-600 font-bold flex items-center justify-center text-xs dark:bg-emerald-950 dark:text-emerald-400">
-                  3
-                </div>
-                <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">Connect Official WhatsApp</h4>
-                <p className="text-[11px] text-slate-500">
-                  Configure Meta WhatsApp Business Cloud API & SMTP credentials.
-                </p>
-                <Link href="/admin/settings" className="block pt-1">
-                  <Button size="sm" variant="outline" className="w-full text-xs font-semibold border-emerald-200 text-emerald-700">
-                    Configure APIs
+            <Card className="hover:border-indigo-300 transition-colors">
+              <CardHeader className="p-5 pb-2">
+                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-purple-600" />
+                  <span>Reports & Analytics</span>
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Review team performance, conversion rates, and campaign delivery.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-5 pt-2">
+                <Link href="/analytics">
+                  <Button size="sm" variant="outline" className="w-full text-xs font-semibold gap-1.5">
+                    <span>View Reports</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </Button>
                 </Link>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       )}
 
-      {/* 4 Action Cards: Daily Attention Drivers */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Hot Leads */}
-        <Card className="border-rose-100 bg-rose-50/30 hover:shadow-md transition-shadow dark:border-rose-950 dark:bg-rose-950/20">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-rose-600 uppercase tracking-wider flex items-center gap-1">
-                <Flame className="h-3.5 w-3.5" />
-                Hot Leads
-              </span>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white">{hotLeads.length}</p>
-              <p className="text-[11px] text-slate-500">High buying intent detected</p>
-            </div>
-            <Link href="/contacts?filter=hot">
-              <div className="h-10 w-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center hover:scale-105 transition-transform dark:bg-rose-900/50 dark:text-rose-300">
-                <ArrowRight className="h-5 w-5" />
-              </div>
-            </Link>
-          </CardContent>
-        </Card>
+      {/* =========================================================================
+          2. MANAGER DASHBOARD (PDF Pages 14, 15)
+         ========================================================================= */}
+      {isManager && (
+        <div className="space-y-6">
+          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Manager Pod Overview ({currentUser.name})
+          </h3>
 
-        {/* Follow-ups Due */}
-        <Card className="border-amber-100 bg-amber-50/30 hover:shadow-md transition-shadow dark:border-amber-950 dark:bg-amber-950/20">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-amber-600 uppercase tracking-wider flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5" />
-                Follow-ups Due
-              </span>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white">{pendingTasks.length}</p>
-              <p className="text-[11px] text-slate-500">Tasks scheduled for today</p>
-            </div>
-            <Link href="/tasks">
-              <div className="h-10 w-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center hover:scale-105 transition-transform dark:bg-amber-900/50 dark:text-amber-300">
-                <ArrowRight className="h-5 w-5" />
-              </div>
-            </Link>
-          </CardContent>
-        </Card>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">My Team Members</span>
+                <p className="text-2xl font-bold text-purple-600 mt-1">{myTeamEmployees.length}</p>
+                <p className="text-[11px] text-slate-400">Assigned Employees</p>
+              </CardContent>
+            </Card>
 
-        {/* Events Today */}
-        <Card className="border-indigo-100 bg-indigo-50/30 hover:shadow-md transition-shadow dark:border-indigo-950 dark:bg-indigo-950/20">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-indigo-600 uppercase tracking-wider flex items-center gap-1">
-                <Calendar className="h-3.5 w-3.5" />
-                Upcoming Events
-              </span>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white">{events.length}</p>
-              <p className="text-[11px] text-slate-500">Automated reminder sequences</p>
-            </div>
-            <Link href="/events">
-              <div className="h-10 w-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center hover:scale-105 transition-transform dark:bg-indigo-900/50 dark:text-indigo-300">
-                <ArrowRight className="h-5 w-5" />
-              </div>
-            </Link>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Team Leads</span>
+                <p className="text-2xl font-bold text-indigo-600 mt-1">{scopedLeads.length}</p>
+                <p className="text-[11px] text-slate-400">Total Pod Leads</p>
+              </CardContent>
+            </Card>
 
-        {/* Unread Conversations */}
-        <Card className="border-emerald-100 bg-emerald-50/30 hover:shadow-md transition-shadow dark:border-emerald-950 dark:bg-emerald-950/20">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider flex items-center gap-1">
-                <MessageSquare className="h-3.5 w-3.5" />
-                Conversations
-              </span>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white">Unified Inbox</p>
-              <p className="text-[11px] text-slate-500">WhatsApp & Email replies</p>
-            </div>
-            <Link href="/conversations">
-              <div className="h-10 w-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center hover:scale-105 transition-transform dark:bg-emerald-900/50 dark:text-emerald-300">
-                <ArrowRight className="h-5 w-5" />
-              </div>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Interested Leads</span>
+                <p className="text-2xl font-bold text-emerald-600 mt-1">
+                  {scopedLeads.filter((l) => l.status === "Interested" || l.status === "Positive").length}
+                </p>
+                <p className="text-[11px] text-slate-400">High buying intent</p>
+              </CardContent>
+            </Card>
 
-      {/* Main Grid: Activity Tracker & Real-Time Action Lists */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Columns: Priority Leads & Follow-ups Queue */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Priority Leads Requiring Follow-up */}
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Converted Leads</span>
+                <p className="text-2xl font-bold text-emerald-700 mt-1">
+                  {scopedLeads.filter((l) => l.status === "Converted").length}
+                </p>
+                <p className="text-[11px] text-slate-400">Won deals</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Employee Breakdown */}
+          <Card>
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="text-sm font-bold">My Team Employees</CardTitle>
+              <CardDescription className="text-xs">
+                Monitor employee lead counts, follow-ups, and conversions.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-5 pt-0">
+              {myTeamEmployees.length === 0 ? (
+                <div className="py-6 text-center text-xs text-slate-400">
+                  No employees assigned to your pod yet. Ask the Main Admin to assign employees to your team.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {myTeamEmployees.map((emp) => {
+                    const empLeads = leads.filter((l) => l.assignedEmployeeId === emp.id);
+                    const empInterested = empLeads.filter((l) => l.status === "Interested" || l.status === "Positive").length;
+                    const empConverted = empLeads.filter((l) => l.status === "Converted").length;
+
+                    return (
+                      <div key={emp.id} className="py-3 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-3">
+                          <div className="h-8 w-8 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center dark:bg-purple-950 dark:text-purple-300">
+                            {emp.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800 dark:text-slate-200">{emp.name}</p>
+                            <p className="text-[11px] text-slate-400">{emp.email}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 text-[11px]">
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">{empLeads.length} Leads</span>
+                          <span className="font-semibold text-emerald-600">{empInterested} Interested</span>
+                          <span className="font-bold text-indigo-600">{empConverted} Converted</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* =========================================================================
+          3. EMPLOYEE DASHBOARD (PDF Page 15, 20)
+         ========================================================================= */}
+      {isEmployee && (
+        <div className="space-y-6">
+          {/* Quick Action Buttons */}
+          <div className="p-4 bg-white border border-slate-200 rounded-xl flex flex-wrap items-center gap-2 text-xs font-semibold dark:bg-slate-900 dark:border-slate-800">
+            <span className="text-slate-500 font-bold mr-1">Quick Actions:</span>
+            <Link href="/contacts?action=new">
+              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1">
+                <Plus className="h-3.5 w-3.5" />
+                <span>Add Lead</span>
+              </Button>
+            </Link>
+            <Link href="/contacts/import">
+              <Button size="sm" variant="outline" className="text-xs gap-1 border-indigo-200 text-indigo-700 bg-indigo-50/50">
+                <UploadCloud className="h-3.5 w-3.5" />
+                <span>Import Leads</span>
+              </Button>
+            </Link>
+            <Link href="/campaigns?action=new">
+              <Button size="sm" variant="outline" className="text-xs gap-1 border-purple-200 text-purple-700 bg-purple-50/50">
+                <Megaphone className="h-3.5 w-3.5" />
+                <span>Create Campaign</span>
+              </Button>
+            </Link>
+            <Link href="/templates?action=new">
+              <Button size="sm" variant="outline" className="text-xs gap-1 border-sky-200 text-sky-700 bg-sky-50/50">
+                <FileText className="h-3.5 w-3.5" />
+                <span>Create Template</span>
+              </Button>
+            </Link>
+            <Link href="/automations?action=new">
+              <Button size="sm" variant="outline" className="text-xs gap-1 border-amber-200 text-amber-700 bg-amber-50/50">
+                <Zap className="h-3.5 w-3.5" />
+                <span>Create Workflow</span>
+              </Button>
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">My Leads</span>
+                <p className="text-2xl font-bold text-slate-900 mt-1 dark:text-white">{scopedLeads.length}</p>
+                <p className="text-[11px] text-slate-400">Assigned directly to you</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Follow-ups Today</span>
+                <p className="text-2xl font-bold text-amber-600 mt-1">{myFollowups.length}</p>
+                <p className="text-[11px] text-slate-400">Due for contact</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Interested Leads</span>
+                <p className="text-2xl font-bold text-emerald-600 mt-1">{myInterestedLeads.length}</p>
+                <p className="text-[11px] text-slate-400">Positive responses</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <span className="text-xs font-semibold text-slate-500">Converted Leads</span>
+                <p className="text-2xl font-bold text-indigo-600 mt-1">{myConvertedLeads.length}</p>
+                <p className="text-[11px] text-slate-400">Successfully closed</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* My Leads List */}
           <Card>
             <CardHeader className="p-5 pb-3 flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <Flame className="h-4 w-4 text-rose-500" />
-                  <span>High-Priority Leads</span>
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Leads with scores &gt; 80 or high budget requirements
-                </CardDescription>
+                <CardTitle className="text-sm font-bold">My Active Leads</CardTitle>
+                <CardDescription className="text-xs">Leads you are currently working on.</CardDescription>
               </div>
               <Link href="/contacts">
-                <Button variant="ghost" size="sm" className="text-xs text-indigo-600 hover:text-indigo-700">
-                  View All Contacts
+                <Button variant="ghost" size="sm" className="text-xs text-indigo-600">
+                  View All ({scopedLeads.length})
                 </Button>
               </Link>
             </CardHeader>
             <CardContent className="p-5 pt-0">
-              {hotLeads.length === 0 ? (
+              {scopedLeads.length === 0 ? (
                 <div className="py-8 text-center space-y-2">
-                  <p className="text-xs text-slate-400">No leads imported yet in this agency workspace.</p>
+                  <p className="text-xs text-slate-400">No leads assigned to you yet.</p>
                   <Link href="/contacts/import">
                     <Button size="sm" variant="outline" className="text-xs font-semibold">
-                      Import Contacts from Excel
+                      Import or Add a Lead
                     </Button>
                   </Link>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {hotLeads.slice(0, 4).map((contact) => (
-                    <div key={contact.id} className="py-3.5 flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-700 text-xs dark:bg-slate-800 dark:text-slate-300">
-                          {contact.name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <Link href={`/contacts/${contact.id}`} className="font-semibold text-sm text-slate-900 hover:text-indigo-600 dark:text-slate-100">
-                              {contact.name}
-                            </Link>
-                            <Badge variant="destructive" className="text-[10px] py-0 px-1.5">
-                              Score {contact.leadScore}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-slate-500">
-                            {contact.company || "Direct Lead"} • {contact.location || "India"}
-                          </p>
-                        </div>
+                  {scopedLeads.slice(0, 5).map((lead) => (
+                    <div key={lead.id} className="py-3 flex items-center justify-between text-xs">
+                      <div>
+                        <Link href={`/contacts/${lead.id}`} className="font-bold text-slate-900 hover:text-indigo-600 dark:text-white">
+                          {lead.name}
+                        </Link>
+                        <p className="text-[11px] text-slate-500">{lead.company || "Individual"} • {lead.phone || lead.email}</p>
                       </div>
-
                       <div className="flex items-center gap-2">
-                        {quickFollowupSuccess === contact.id ? (
-                          <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Sent
-                          </span>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleQuickWhatsApp(contact.name, contact.id)}
-                            className="text-xs font-medium border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-8 gap-1.5 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
-                          >
-                            <Send className="h-3 w-3" />
-                            <span>WhatsApp</span>
-                          </Button>
-                        )}
-                        <Link href={`/contacts/${contact.id}`}>
-                          <Button size="sm" variant="ghost" className="h-8 text-xs text-slate-600">
-                            360° Profile
-                          </Button>
+                        <Badge variant="secondary" className="text-[10px]">{lead.status}</Badge>
+                        <Link href={`/contacts/${lead.id}`}>
+                          <Button size="sm" variant="outline" className="h-7 text-[11px]">View</Button>
                         </Link>
                       </div>
                     </div>
@@ -307,140 +461,8 @@ export default function DashboardPage() {
               )}
             </CardContent>
           </Card>
-
-          {/* Today's Follow-up Tasks */}
-          <Card>
-            <CardHeader className="p-5 pb-3 flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-amber-500" />
-                  <span>Follow-up Action Items</span>
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Automations and team members created these scheduled tasks
-                </CardDescription>
-              </div>
-              <Link href="/tasks">
-                <Button variant="ghost" size="sm" className="text-xs text-indigo-600">
-                  Manage All Tasks
-                </Button>
-              </Link>
-            </CardHeader>
-            <CardContent className="p-5 pt-0">
-              {tasks.length === 0 ? (
-                <div className="py-8 text-center space-y-2">
-                  <p className="text-xs text-slate-400">No scheduled tasks pending.</p>
-                  <Link href="/tasks">
-                    <Button size="sm" variant="outline" className="text-xs font-semibold">
-                      Create a Task
-                    </Button>
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {tasks.slice(0, 3).map((task) => (
-                    <div
-                      key={task.id}
-                      className="p-3 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-slate-50 flex items-center justify-between gap-3 transition-colors dark:border-slate-800 dark:bg-slate-900/40"
-                    >
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => toggleTaskStatus(task.id)}
-                          className={`h-5 w-5 rounded-md border flex items-center justify-center transition-colors cursor-pointer ${
-                            task.status === "COMPLETED"
-                              ? "bg-emerald-600 border-emerald-600 text-white"
-                              : "border-slate-300 hover:border-indigo-500 bg-white dark:bg-slate-800"
-                          }`}
-                        >
-                          {task.status === "COMPLETED" && <Check className="h-3.5 w-3.5" />}
-                        </button>
-                        <div>
-                          <p className={`text-xs font-semibold ${task.status === "COMPLETED" ? "line-through text-slate-400" : "text-slate-800 dark:text-slate-200"}`}>
-                            {task.title}
-                          </p>
-                          <p className="text-[11px] text-slate-400">
-                            {task.contactName} ({task.contactCompany}) • Due {task.dueDate}
-                          </p>
-                        </div>
-                      </div>
-
-                      <Badge
-                        variant={
-                          task.priority === "URGENT"
-                            ? "destructive"
-                            : task.priority === "HIGH"
-                            ? "warning"
-                            : "secondary"
-                        }
-                        className="text-[10px]"
-                      >
-                        {task.priority}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
-
-        {/* Right Column: Live Automation Activity & Pipeline */}
-        <div className="space-y-6">
-          {/* Active Automations List */}
-          <Card className="border-indigo-100 bg-gradient-to-b from-indigo-50/40 to-white dark:from-indigo-950/20 dark:to-slate-900">
-            <CardHeader className="p-5 pb-3">
-              <CardTitle className="text-sm font-bold flex items-center gap-2 text-indigo-900 dark:text-indigo-200">
-                <Zap className="h-4 w-4 text-indigo-600" />
-                <span>Active Workflows ({automations.length})</span>
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Response-based automation triggers ready for new leads
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-5 pt-0 space-y-2">
-              {automations.map((auto) => (
-                <Link
-                  key={auto.id}
-                  href={`/automations/${auto.id}`}
-                  className="p-2.5 rounded-lg border border-slate-100 bg-white hover:border-indigo-200 flex items-center justify-between text-xs transition-colors dark:bg-slate-800 dark:border-slate-700"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`h-2 w-2 rounded-full ${
-                        auto.status === "ACTIVE"
-                          ? "bg-emerald-500"
-                          : "bg-slate-300"
-                      }`}
-                    />
-                    <span className="font-semibold text-slate-800 truncate max-w-[180px] dark:text-slate-200">
-                      {auto.name}
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-slate-400 font-medium">
-                    {auto.executionCount} runs
-                  </span>
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
-
-          {/* Quick Smart Import Banner */}
-          <div className="p-5 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-700 text-white shadow-md space-y-3">
-            <div className="flex items-center gap-2">
-              <UploadCloud className="h-5 w-5 text-indigo-200" />
-              <h3 className="font-bold text-sm">Have new customer data?</h3>
-            </div>
-            <p className="text-xs text-indigo-100 leading-relaxed">
-              Drop any Excel sheet, business card photo, or screenshot. Our AI will automatically extract columns and start your follow-up workflows.
-            </p>
-            <Link href="/contacts/import" className="block">
-              <Button size="sm" className="w-full bg-white text-indigo-900 hover:bg-indigo-50 font-bold text-xs shadow-xs">
-                Launch Smart Importer
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

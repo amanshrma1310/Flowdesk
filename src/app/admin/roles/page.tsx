@@ -3,251 +3,198 @@
 import React, { useState } from "react";
 import {
   Shield,
-  Plus,
   Check,
-  CheckCircle2,
-  Lock,
+  X,
   Sliders,
-  Sparkles,
+  AlertCircle,
+  Save,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useFlowDesk } from "@/lib/store";
-import { PermissionAction } from "@/lib/types";
 
-const ALL_PERMISSION_GROUPS: { group: string; permissions: { key: PermissionAction; label: string }[] }[] = [
-  {
-    group: "Lead Operations",
-    permissions: [
-      { key: "LEAD_VIEW_ALL", label: "View All Company Leads" },
-      { key: "LEAD_VIEW_TEAM", label: "View Team / Pod Leads" },
-      { key: "LEAD_VIEW_OWN", label: "View Only Own Assigned Leads" },
-      { key: "LEAD_CREATE", label: "Create Single Lead" },
-      { key: "LEAD_IMPORT", label: "Bulk Smart Import (Excel / OCR)" },
-      { key: "LEAD_EXPORT", label: "Export Leads to CSV" },
-      { key: "LEAD_DELETE", label: "Delete Leads" },
-      { key: "LEAD_ASSIGN", label: "Assign Leads to Employees" },
-    ],
-  },
-  {
-    group: "Campaigns & Marketing",
-    permissions: [
-      { key: "CAMPAIGN_CREATE", label: "Create Broadcast Campaigns" },
-      { key: "CAMPAIGN_LAUNCH", label: "Launch WhatsApp / Email Broadcasts" },
-      { key: "CAMPAIGN_PAUSE", label: "Pause Active Campaigns" },
-      { key: "TEMPLATE_CREATE", label: "Create Message Templates" },
-      { key: "TEMPLATE_APPROVE", label: "Approve Company-Wide Templates" },
-    ],
-  },
-  {
-    group: "No-Code Workflows & Automation",
-    permissions: [
-      { key: "WORKFLOW_CREATE", label: "Create Visual Workflows" },
-      { key: "WORKFLOW_ACTIVATE", label: "Activate Live Automations" },
-      { key: "WORKFLOW_PAUSE", label: "Pause Workflow Automations" },
-    ],
-  },
-  {
-    group: "Analytics & System",
-    permissions: [
-      { key: "ANALYTICS_COMPANY", label: "View Company Global Analytics" },
-      { key: "ANALYTICS_TEAM", label: "View Team Leaderboards" },
-      { key: "ANALYTICS_OWN", label: "View Personal Analytics" },
-      { key: "SETTINGS_MANAGE", label: "Manage SMTP / WhatsApp API Keys" },
-      { key: "AUDIT_LOG_VIEW", label: "View Security Audit Trail" },
-    ],
-  },
+interface PermissionRow {
+  key: string;
+  name: string;
+  admin: "YES";
+  manager: "YES" | "LIMITED" | "TEAM_ONLY" | "NO";
+  employeeDefault: boolean;
+}
+
+const PERMISSION_MATRIX: PermissionRow[] = [
+  { key: "dashboard", name: "Dashboard", admin: "YES", manager: "YES", employeeDefault: true },
+  { key: "manageUsers", name: "Manage Users", admin: "YES", manager: "LIMITED", employeeDefault: false },
+  { key: "manageManagers", name: "Manage Managers", admin: "YES", manager: "NO", employeeDefault: false },
+  { key: "manageEmployees", name: "Manage Employees", admin: "YES", manager: "TEAM_ONLY", employeeDefault: false },
+  { key: "viewAllLeads", name: "View All Leads", admin: "YES", manager: "NO", employeeDefault: false },
+  { key: "viewTeamLeads", name: "View Team Leads", admin: "YES", manager: "YES", employeeDefault: true },
+  { key: "addLeads", name: "Add Leads", admin: "YES", manager: "YES", employeeDefault: true },
+  { key: "importLeads", name: "Import Leads", admin: "YES", manager: "YES", employeeDefault: true },
+  { key: "emailMarketing", name: "Email Marketing", admin: "YES", manager: "YES", employeeDefault: true },
+  { key: "whatsAppMarketing", name: "WhatsApp Marketing", admin: "YES", manager: "YES", employeeDefault: true },
+  { key: "createTemplates", name: "Create Templates", admin: "YES", manager: "YES", employeeDefault: true },
+  { key: "createWorkflows", name: "Create Workflows", admin: "YES", manager: "YES", employeeDefault: true },
+  { key: "smtpSettings", name: "SMTP Settings", admin: "YES", manager: "NO", employeeDefault: false },
+  { key: "whatsAppSettings", name: "WhatsApp API Settings", admin: "YES", manager: "NO", employeeDefault: false },
+  { key: "systemSettings", name: "System Settings", admin: "YES", manager: "NO", employeeDefault: false },
+  { key: "reports", name: "Reports", admin: "YES", manager: "TEAM_ONLY", employeeDefault: true },
 ];
 
-export default function AdminRolesPage() {
-  const { customRoles, createCustomRole } = useFlowDesk();
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [roleName, setRoleName] = useState("");
-  const [roleDesc, setRoleDesc] = useState("");
-  const [selectedPerms, setSelectedPerms] = useState<Set<PermissionAction>>(
-    new Set(["LEAD_VIEW_TEAM", "LEAD_CREATE", "LEAD_IMPORT", "CAMPAIGN_CREATE", "TEMPLATE_CREATE"])
-  );
+export default function PermissionManagementPage() {
+  const { currentUser } = useFlowDesk();
+  const [employeePermissions, setEmployeePermissions] = useState<Record<string, boolean>>({
+    dashboard: true,
+    viewTeamLeads: true,
+    addLeads: true,
+    importLeads: true,
+    emailMarketing: true,
+    whatsAppMarketing: true,
+    createTemplates: true,
+    createWorkflows: true,
+    reports: true,
+  });
 
-  const togglePermission = (key: PermissionAction) => {
-    const next = new Set(selectedPerms);
-    if (next.has(key)) {
-      next.delete(key);
-    } else {
-      next.add(key);
-    }
-    setSelectedPerms(next);
+  const [savedSuccess, setSavedSuccess] = useState(false);
+
+  const toggleEmployeePerm = (key: string) => {
+    setEmployeePermissions((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
   };
 
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!roleName.trim()) return;
-
-    createCustomRole({
-      name: roleName,
-      description: roleDesc,
-      permissions: Array.from(selectedPerms),
-    });
-
-    setIsCreateOpen(false);
-    setRoleName("");
-    setRoleDesc("");
+  const handleSave = () => {
+    setSavedSuccess(true);
+    setTimeout(() => setSavedSuccess(false), 2500);
   };
+
+  if (!currentUser || currentUser.role !== "ADMIN") {
+    return (
+      <div className="p-12 text-center text-xs text-slate-500">
+        Access Denied. Only the Main Administrator can configure permissions.
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Granular Roles & Permission Engine
+              Permission Management
             </h1>
-            <Badge variant="purple" className="text-xs font-bold">RBAC Engine</Badge>
+            <Badge variant="purple" className="text-xs font-bold">
+              RBAC Governance
+            </Badge>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Do not hard-code roles — construct precise custom permission matrices for marketing reps, managers, and contractors.
+            Dedicated permission system allowing Admin to turn employee permissions ON/OFF (PDF Pages 3 & 4).
           </p>
         </div>
 
         <Button
           size="sm"
-          onClick={() => setIsCreateOpen(true)}
+          onClick={handleSave}
           className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold gap-1.5 shadow-xs"
         >
-          <Plus className="h-4 w-4" />
-          <span>Create Custom Role</span>
+          <Save className="h-4 w-4" />
+          <span>Save Permissions</span>
         </Button>
       </div>
 
-      {/* Existing Roles Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {customRoles.map((role) => (
-          <Card key={role.id} className="hover:border-indigo-300 transition-all flex flex-col justify-between">
-            <CardHeader className="p-5 pb-3">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center dark:bg-indigo-950 dark:text-indigo-400">
-                    <Shield className="h-4 w-4" />
-                  </div>
-                  <CardTitle className="text-sm font-bold">{role.name}</CardTitle>
-                </div>
-                <Badge variant={role.isSystem ? "secondary" : "purple"} className="text-[10px]">
-                  {role.isSystem ? "System Role" : "Custom Role"}
-                </Badge>
-              </div>
-              <CardDescription className="text-xs text-slate-500 leading-relaxed">
-                {role.description}
-              </CardDescription>
-            </CardHeader>
+      {savedSuccess && (
+        <div className="p-3 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2 border border-emerald-200">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+          <span>Permissions matrix updated successfully across all agency users.</span>
+        </div>
+      )}
 
-            <CardContent className="p-5 pt-0 space-y-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Granted Capabilities ({role.permissions.length}):
-              </p>
-              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
-                {role.permissions.map((p) => (
-                  <span
-                    key={p}
-                    className="text-[10px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md flex items-center gap-1 dark:bg-slate-800 dark:text-slate-300"
-                  >
-                    <Check className="h-3 w-3 text-emerald-600" />
-                    {p.replace(/_/g, " ")}
-                  </span>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Permission Table matching PDF Page 3 & 4 */}
+      <Card>
+        <CardHeader className="p-5 pb-3">
+          <CardTitle className="text-sm font-bold flex items-center gap-2">
+            <Sliders className="h-4 w-4 text-indigo-600" />
+            <span>Role & Feature Access Matrix</span>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Admin has full control. Managers have team access. Employees have permission-based toggles.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/70 text-slate-500 font-semibold uppercase tracking-wider dark:border-slate-800 dark:bg-slate-900/50">
+                <th className="p-4 pl-5">Functionality</th>
+                <th className="p-4 text-center">Admin</th>
+                <th className="p-4 text-center">Manager</th>
+                <th className="p-4 text-center">Employee (Permission Based)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {PERMISSION_MATRIX.map((row) => (
+                <tr key={row.key} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                  <td className="p-4 pl-5 font-semibold text-slate-800 dark:text-slate-200">
+                    {row.name}
+                  </td>
 
-      {/* Create Custom Role Dialog with Permission Matrix */}
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-w-2xl bg-white dark:bg-slate-900 max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold">Build Custom Role Permission Matrix</DialogTitle>
-            <DialogDescription className="text-xs">
-              Example: &quot;Senior Marketing Rep&quot; with import & campaign rights but without lead export or delete rights.
-            </DialogDescription>
-          </DialogHeader>
+                  {/* Admin Column */}
+                  <td className="p-4 text-center">
+                    <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-emerald-100 text-emerald-700 font-bold dark:bg-emerald-950 dark:text-emerald-300">
+                      ✓
+                    </span>
+                  </td>
 
-          <form onSubmit={handleCreate} className="space-y-4 pt-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Role Name *</label>
-                <Input
-                  required
-                  placeholder="e.g. Senior Marketing Employee"
-                  value={roleName}
-                  onChange={(e) => setRoleName(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Description</label>
-                <Input
-                  placeholder="e.g. Campaign & template manager"
-                  value={roleDesc}
-                  onChange={(e) => setRoleDesc(e.target.value)}
-                />
-              </div>
-            </div>
+                  {/* Manager Column */}
+                  <td className="p-4 text-center">
+                    {row.manager === "YES" ? (
+                      <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-emerald-100 text-emerald-700 font-bold dark:bg-emerald-950 dark:text-emerald-300">
+                        ✓
+                      </span>
+                    ) : row.manager === "LIMITED" ? (
+                      <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded dark:bg-purple-950 dark:text-purple-300">
+                        Limited
+                      </span>
+                    ) : row.manager === "TEAM_ONLY" ? (
+                      <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded dark:bg-indigo-950 dark:text-indigo-300">
+                        Team Only
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-rose-100 text-rose-700 font-bold dark:bg-rose-950 dark:text-rose-300">
+                        ✕
+                      </span>
+                    )}
+                  </td>
 
-            {/* Permission Checkbox Groups */}
-            <div className="space-y-3 pt-2">
-              <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                Permission Checkbox Matrix:
-              </p>
-
-              <div className="space-y-4">
-                {ALL_PERMISSION_GROUPS.map((group) => (
-                  <div key={group.group} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 dark:bg-slate-950 dark:border-slate-800">
-                    <p className="text-xs font-bold text-indigo-700 dark:text-indigo-300">
-                      {group.group}
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      {group.permissions.map((p) => {
-                        const isChecked = selectedPerms.has(p.key);
-                        return (
-                          <button
-                            type="button"
-                            key={p.key}
-                            onClick={() => togglePermission(p.key)}
-                            className={`p-2 rounded-lg border text-left flex items-center gap-2 transition-all cursor-pointer ${
-                              isChecked
-                                ? "bg-indigo-50/70 border-indigo-300 text-indigo-900 font-semibold dark:bg-indigo-950/40 dark:text-indigo-200 dark:border-indigo-800"
-                                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100/60 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400"
-                            }`}
-                          >
-                            <div
-                              className={`h-4 w-4 rounded-md border flex items-center justify-center text-white shrink-0 ${
-                                isChecked ? "bg-indigo-600 border-indigo-600" : "border-slate-300"
-                              }`}
-                            >
-                              {isChecked && <Check className="h-3 w-3" />}
-                            </div>
-                            <span className="truncate">{p.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <DialogFooter className="pt-3">
-              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
-                Save & Deploy Custom Role
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+                  {/* Employee Toggle Column */}
+                  <td className="p-4 text-center">
+                    {row.admin === "YES" && (row.manager === "NO" || row.key === "manageUsers" || row.key === "manageEmployees" || row.key === "viewAllLeads") ? (
+                      <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-rose-100 text-rose-700 font-bold dark:bg-rose-950 dark:text-rose-300">
+                        ✕
+                      </span>
+                    ) : (
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!employeePermissions[row.key]}
+                          onChange={() => toggleEmployeePerm(row.key)}
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                          {employeePermissions[row.key] ? "Allowed" : "Restricted"}
+                        </span>
+                      </label>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

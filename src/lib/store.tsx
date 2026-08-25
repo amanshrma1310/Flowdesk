@@ -3,831 +3,936 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
 import {
   Organization,
-  Contact,
-  Deal,
-  Automation,
-  Task,
-  EventItem,
-  ChatMessage,
-  Campaign,
   User,
-  CustomRole,
-  LeadList,
-  MessageTemplate,
-  AuditLog,
-  LeadJourneyStep,
+  UserRole,
+  UserPermissions,
+  Lead,
+  LeadStatus,
+  LeadFolder,
+  MarketingTemplate,
+  Campaign,
+  Workflow,
+  WorkflowStep,
+  LeadResponse,
+  SMTPSettings,
+  WhatsAppAPISettings,
+  LeadActivity,
 } from "./types";
-import {
-  MOCK_CUSTOM_ROLES,
-  MOCK_TEMPLATES,
-  MOCK_AUTOMATIONS,
-  MOCK_EVENTS,
-} from "./mockData";
-import { CleanedContactRow } from "./ai/dataCleaner";
 
 interface FlowDeskStoreContextType {
-  // Auth & Agency Context
-  isAuthenticated: boolean;
   organization: Organization | null;
-  currentUser: User;
-  setCurrentUser: (user: User) => void;
-  switchUserRole: (role: "MAIN_ADMIN" | "MANAGER" | "EMPLOYEE") => void;
-  login: (email: string, name?: string) => void;
-  createAgency: (data: { name: string; industry?: string; country?: string; currency?: string }) => void;
-  logout: () => void;
-  resetWorkspace: () => void;
-
-  // Raw & RBAC Scoped Collections
-  contacts: Contact[];
-  allContacts: Contact[];
-  leadLists: LeadList[];
-  customRoles: CustomRole[];
-  templates: MessageTemplate[];
-  auditLogs: AuditLog[];
-  leadJourneys: Record<string, LeadJourneyStep[]>;
-  deals: Deal[];
-  automations: Automation[];
-  tasks: Task[];
-  events: EventItem[];
-  chats: Record<string, ChatMessage[]>;
-  campaigns: Campaign[];
+  currentUser: User | null;
   users: User[];
-  
-  // User Management
-  addManager: (data: { name: string; email: string; department?: string; territory?: string }) => User;
-  addEmployee: (data: { name: string; email: string; role?: string; managerId?: string; department?: string }) => User;
+  leads: Lead[];
+  scopedLeads: Lead[];
+  folders: LeadFolder[];
+  templates: MarketingTemplate[];
+  campaigns: Campaign[];
+  workflows: Workflow[];
+  responses: LeadResponse[];
+  smtpSettings: SMTPSettings;
+  whatsAppSettings: WhatsAppAPISettings;
 
-  // Actions
-  importContacts: (rows: CleanedContactRow[], listName: string) => void;
-  updateContact: (id: string, updates: Partial<Contact>) => void;
-  addContact: (contact: Partial<Contact>) => Contact;
-  deleteContact: (id: string) => void;
-  toggleDoNotContact: (id: string) => void;
-  enrollLeadInWorkflow: (leadId: string, workflowId: string) => { success: boolean; message: string };
-  
-  // Lead Lists / Folders
-  createLeadList: (name: string, description?: string) => LeadList;
-  
-  // Lead Journey
-  addLeadJourneyStep: (leadId: string, step: Partial<LeadJourneyStep>) => void;
-  
-  // Custom Roles & Permissions
-  createCustomRole: (role: Partial<CustomRole>) => CustomRole;
-  
-  // Templates & Approvals
-  createTemplate: (template: Partial<MessageTemplate>) => MessageTemplate;
-  approveTemplate: (id: string) => void;
-  
-  // Audit Logs
-  addAuditLog: (log: Partial<AuditLog>) => void;
+  // Auth & Agency Operations
+  createAgency: (data: { agencyName: string; adminName: string; adminEmail: string }) => Organization;
+  joinAgency: (data: { joinCode: string; name: string; email: string; role: "MANAGER" | "EMPLOYEE"; managerId?: string }) => { success: boolean; message: string };
+  login: (email: string) => { success: boolean; message: string };
+  logout: () => void;
+  switchUser: (userId: string) => void;
+  resetAll: () => void;
 
-  // Automations
-  toggleAutomationStatus: (id: string) => void;
-  updateAutomation: (id: string, updates: Partial<Automation>) => void;
-  createAutomation: (automation: Partial<Automation>) => Automation;
-  triggerAutomationTest: (id: string, contactId?: string) => Promise<{ success: boolean; log: string[] }>;
-  
-  // Tasks
-  toggleTaskStatus: (id: string) => void;
-  addTask: (task: Partial<Task>) => void;
-  
-  // Deals
-  updateDealStage: (id: string, stage: Deal["stage"]) => void;
-  
-  // Messages / Inbox
-  sendMessage: (contactId: string, content: string, channel?: "WHATSAPP" | "EMAIL") => void;
+  // User & Team Management
+  createManager: (data: { name: string; email: string }) => User;
+  createEmployee: (data: { name: string; email: string; managerId?: string }) => User;
+  assignEmployeeToManager: (employeeId: string, managerId: string) => void;
+  toggleUserActive: (userId: string) => void;
+  updateUserPermissions: (userId: string, perms: Partial<UserPermissions>) => void;
+
+  // Leads & Folders
+  addLead: (data: Partial<Lead>) => Lead;
+  bulkImportLeads: (leadRows: Array<{ name: string; company?: string; email?: string; phone?: string; whatsApp?: string; source?: string }>, folderName: string) => { importedCount: number; folderId: string };
+  updateLeadStatus: (leadId: string, status: LeadStatus) => void;
+  deleteLead: (leadId: string) => void;
+  addLeadActivity: (leadId: string, activity: Omit<LeadActivity, "id" | "timestamp">) => void;
+  addLeadToWorkflow: (leadId: string, workflowId: string) => { success: boolean; message: string };
+  createFolder: (name: string) => LeadFolder;
+
+  // Marketing & Campaigns
+  createTemplate: (data: Omit<MarketingTemplate, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName">) => MarketingTemplate;
+  deleteTemplate: (id: string) => void;
+  createCampaign: (data: Omit<Campaign, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "sentCount" | "deliveredCount" | "openedCount" | "repliedCount" | "positiveResponses" | "negativeResponses" | "failedCount">) => Campaign;
+  updateCampaignStatus: (campaignId: string, status: Campaign["status"]) => void;
+
+  // Workflows & Follow-ups
+  createWorkflow: (data: Omit<Workflow, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "enrolledLeadsCount">) => Workflow;
+  toggleWorkflowActive: (workflowId: string) => void;
+
+  // Responses
+  recordResponse: (leadId: string, message: string, sentiment: "Positive" | "Negative" | "Question", channel: "WhatsApp" | "Email") => void;
+  markResponseHandled: (responseId: string) => void;
+
+  // Settings
+  saveSMTPSettings: (settings: Partial<SMTPSettings>) => void;
+  saveWhatsAppSettings: (settings: Partial<WhatsAppAPISettings>) => void;
 }
 
 const FlowDeskStoreContext = createContext<FlowDeskStoreContextType | null>(null);
 
-const DEFAULT_ADMIN: User = {
-  id: "usr-admin-1",
-  name: "Admin User",
-  email: "admin@flowdesk.ai",
-  role: "MAIN_ADMIN",
-  customRoleName: "Main Admin",
-  department: "Executive",
-  activeLeadsCount: 0,
+const DEFAULT_SMTP: SMTPSettings = {
+  host: "smtp.mailgun.org",
+  port: "587",
+  username: "postmaster@sandbox.mailgun.org",
+  encryption: "TLS",
+  fromName: "Marketing Team",
+  fromEmail: "outreach@agency.com",
+  isConfigured: false,
+};
+
+const DEFAULT_WHATSAPP: WhatsAppAPISettings = {
+  provider: "Meta WhatsApp Cloud API",
+  apiUrl: "https://graph.facebook.com/v20.0",
+  apiKey: "",
+  accessToken: "",
+  phoneNumberId: "",
+  businessAccountId: "",
+  webhookUrl: "https://api.flowdesk.ai/webhooks/whatsapp",
+  isConfigured: false,
 };
 
 export function FlowDeskStoreProvider({ children }: { children: React.ReactNode }) {
-  // Authentication & Organization State
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [organization, setOrganization] = useState<Organization | null>(null);
-
-  // Users State (starts clean with only the Admin when agency is created)
-  const [users, setUsers] = useState<User[]>([DEFAULT_ADMIN]);
-  const [currentUser, setCurrentUser] = useState<User>(DEFAULT_ADMIN);
-
-  // Collections (Clean Initial State)
-  const [allContacts, setAllContacts] = useState<Contact[]>([]);
-  const [leadLists, setLeadLists] = useState<LeadList[]>([]);
-  const [customRoles, setCustomRoles] = useState<CustomRole[]>(MOCK_CUSTOM_ROLES);
-  const [templates, setTemplates] = useState<MessageTemplate[]>(MOCK_TEMPLATES);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [leadJourneys, setLeadJourneys] = useState<Record<string, LeadJourneyStep[]>>({});
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [automations, setAutomations] = useState<Automation[]>(MOCK_AUTOMATIONS);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [events, setEvents] = useState<EventItem[]>(MOCK_EVENTS);
-  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [folders, setFolders] = useState<LeadFolder[]>([]);
+  const [templates, setTemplates] = useState<MarketingTemplate[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [responses, setResponses] = useState<LeadResponse[]>([]);
+  const [smtpSettings, setSmtpSettings] = useState<SMTPSettings>(DEFAULT_SMTP);
+  const [whatsAppSettings, setWhatsAppSettings] = useState<WhatsAppAPISettings>(DEFAULT_WHATSAPP);
 
-  // Load from localStorage if available
+  // Synchronize localStorage for instant persistence
   useEffect(() => {
     try {
-      const savedAuth = localStorage.getItem("flowdesk_auth");
-      const savedOrg = localStorage.getItem("flowdesk_org");
-      const savedUsers = localStorage.getItem("flowdesk_users");
-      const savedContacts = localStorage.getItem("flowdesk_contacts");
-      const savedLists = localStorage.getItem("flowdesk_lists");
-      const savedLogs = localStorage.getItem("flowdesk_logs");
+      const savedOrg = localStorage.getItem("fd_marketing_org");
+      const savedUser = localStorage.getItem("fd_marketing_current_user");
+      const savedUsers = localStorage.getItem("fd_marketing_users");
+      const savedLeads = localStorage.getItem("fd_marketing_leads");
+      const savedFolders = localStorage.getItem("fd_marketing_folders");
+      const savedTemplates = localStorage.getItem("fd_marketing_templates");
+      const savedCampaigns = localStorage.getItem("fd_marketing_campaigns");
+      const savedWorkflows = localStorage.getItem("fd_marketing_workflows");
+      const savedResponses = localStorage.getItem("fd_marketing_responses");
+      const savedSmtp = localStorage.getItem("fd_marketing_smtp");
+      const savedWa = localStorage.getItem("fd_marketing_wa");
 
-      if (savedAuth && savedOrg) {
-        setIsAuthenticated(true);
-        const orgObj = JSON.parse(savedOrg);
-        setOrganization(orgObj);
-        
-        if (savedUsers) {
-          const parsedUsers = JSON.parse(savedUsers);
-          setUsers(parsedUsers);
-          setCurrentUser(parsedUsers[0] || DEFAULT_ADMIN);
-        }
-        if (savedContacts) setAllContacts(JSON.parse(savedContacts));
-        if (savedLists) setLeadLists(JSON.parse(savedLists));
-        if (savedLogs) setAuditLogs(JSON.parse(savedLogs));
-      }
-    } catch (e) {
-      console.warn("Storage sync failed:", e);
+      if (savedOrg) setOrganization(JSON.parse(savedOrg));
+      if (savedUser) setCurrentUser(JSON.parse(savedUser));
+      if (savedUsers) setUsers(JSON.parse(savedUsers));
+      if (savedLeads) setLeads(JSON.parse(savedLeads));
+      if (savedFolders) setFolders(JSON.parse(savedFolders));
+      if (savedTemplates) setTemplates(JSON.parse(savedTemplates));
+      if (savedCampaigns) setCampaigns(JSON.parse(savedCampaigns));
+      if (savedWorkflows) setWorkflows(JSON.parse(savedWorkflows));
+      if (savedResponses) setResponses(JSON.parse(savedResponses));
+      if (savedSmtp) setSmtpSettings(JSON.parse(savedSmtp));
+      if (savedWa) setWhatsAppSettings(JSON.parse(savedWa));
+    } catch (err) {
+      console.warn("Storage hydration failed:", err);
     }
   }, []);
 
-  // Save changes to localStorage
-  const persistState = (org: Organization | null, userList: User[], contactList: Contact[], lists: LeadList[], logs: AuditLog[]) => {
+  const persist = (
+    org: Organization | null,
+    u: User | null,
+    uList: User[],
+    lList: Lead[],
+    fList: LeadFolder[],
+    tList: MarketingTemplate[],
+    cList: Campaign[],
+    wList: Workflow[],
+    rList: LeadResponse[],
+    smtp: SMTPSettings,
+    wa: WhatsAppAPISettings
+  ) => {
     try {
       if (org) {
-        localStorage.setItem("flowdesk_auth", "true");
-        localStorage.setItem("flowdesk_org", JSON.stringify(org));
-        localStorage.setItem("flowdesk_users", JSON.stringify(userList));
-        localStorage.setItem("flowdesk_contacts", JSON.stringify(contactList));
-        localStorage.setItem("flowdesk_lists", JSON.stringify(lists));
-        localStorage.setItem("flowdesk_logs", JSON.stringify(logs));
+        localStorage.setItem("fd_marketing_org", JSON.stringify(org));
+        localStorage.setItem("fd_marketing_current_user", JSON.stringify(u));
+        localStorage.setItem("fd_marketing_users", JSON.stringify(uList));
+        localStorage.setItem("fd_marketing_leads", JSON.stringify(lList));
+        localStorage.setItem("fd_marketing_folders", JSON.stringify(fList));
+        localStorage.setItem("fd_marketing_templates", JSON.stringify(tList));
+        localStorage.setItem("fd_marketing_campaigns", JSON.stringify(cList));
+        localStorage.setItem("fd_marketing_workflows", JSON.stringify(wList));
+        localStorage.setItem("fd_marketing_responses", JSON.stringify(rList));
+        localStorage.setItem("fd_marketing_smtp", JSON.stringify(smtp));
+        localStorage.setItem("fd_marketing_wa", JSON.stringify(wa));
       } else {
-        localStorage.removeItem("flowdesk_auth");
-        localStorage.removeItem("flowdesk_org");
-        localStorage.removeItem("flowdesk_users");
-        localStorage.removeItem("flowdesk_contacts");
-        localStorage.removeItem("flowdesk_lists");
-        localStorage.removeItem("flowdesk_logs");
+        localStorage.clear();
       }
-    } catch (e) {
-      console.warn("Storage write failed:", e);
+    } catch (err) {
+      console.warn("Storage write failed:", err);
     }
   };
 
-  // Login handler
-  const login = (email: string, name: string = "Admin User") => {
+  // Scoped leads based on hierarchy: Admin sees all; Manager sees team's leads; Employee sees assigned leads
+  const scopedLeads = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === "ADMIN") {
+      return leads;
+    } else if (currentUser.role === "MANAGER") {
+      const subordinateIds = new Set(
+        users.filter((u) => u.managerId === currentUser.id).map((u) => u.id)
+      );
+      subordinateIds.add(currentUser.id);
+      return leads.filter(
+        (l) => subordinateIds.has(l.assignedEmployeeId) || l.managerId === currentUser.id
+      );
+    } else {
+      return leads.filter((l) => l.assignedEmployeeId === currentUser.id);
+    }
+  }, [leads, currentUser, users]);
+
+  // Create Agency (Admin)
+  const createAgency = ({
+    agencyName,
+    adminName,
+    adminEmail,
+  }: {
+    agencyName: string;
+    adminName: string;
+    adminEmail: string;
+  }): Organization => {
+    const orgId = `org-${Date.now()}`;
+    const code = `${agencyName.slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const adminId = `usr-admin-${Date.now()}`;
+
     const adminUser: User = {
-      id: `usr-${Date.now()}`,
-      name: name || "Admin User",
-      email,
-      role: "MAIN_ADMIN",
-      customRoleName: "Main Admin",
-      department: "Executive",
-      activeLeadsCount: 0,
-    };
-    setCurrentUser(adminUser);
-    setUsers([adminUser]);
-  };
-
-  // Create Agency / Organization
-  const createAgency = (data: { name: string; industry?: string; country?: string; currency?: string }) => {
-    const newOrg: Organization = {
-      id: `org-${Date.now()}`,
-      name: data.name,
-      slug: data.name.toLowerCase().replace(/[^a-z0-9]/g, "-"),
-      industry: data.industry || "Marketing & Lead Generation",
-      country: data.country || "India",
-      currency: data.currency || "INR (₹)",
-      timezone: "Asia/Kolkata (IST)",
+      id: adminId,
+      name: adminName,
+      email: adminEmail,
+      role: "ADMIN",
+      agencyId: orgId,
+      isActive: true,
       createdAt: new Date().toISOString(),
-      plan: "Business Growth",
     };
 
-    const initialLog: AuditLog = {
-      id: `log-init-${Date.now()}`,
-      userId: currentUser.id,
-      userName: currentUser.name,
-      userRole: "MAIN_ADMIN",
-      action: "CREATED_ORGANIZATION",
-      entityType: "ORGANIZATION",
-      entityName: newOrg.name,
-      details: `Initialized new agency workspace '${newOrg.name}' for industry: ${newOrg.industry}. Clean workspace initialized.`,
-      timestamp: "Just now",
-      ipAddress: "127.0.0.1",
+    const newOrg: Organization = {
+      id: orgId,
+      name: agencyName,
+      joinCode: code,
+      createdAt: new Date().toISOString(),
+      adminId,
+      adminName,
+      adminEmail,
+    };
+
+    // Standard starter templates ready for customization
+    const starterTemplates: MarketingTemplate[] = [
+      {
+        id: `tpl-em-1`,
+        agencyId: orgId,
+        name: "August Product Promotion",
+        channel: "Email",
+        subject: "Grow your business with our solution",
+        body: "Hello {{first_name}},\n\nWe would like to introduce our specialized marketing and growth solutions for {{company}}.\n\nBest regards,\n{{first_name}} Team",
+        createdById: adminId,
+        createdByName: adminName,
+        createdAt: new Date().toLocaleDateString(),
+      },
+      {
+        id: `tpl-wa-1`,
+        agencyId: orgId,
+        name: "WhatsApp Quick Offer",
+        channel: "WhatsApp",
+        body: "Hi {{first_name}} 👋\n\nWe have a special growth solution tailored for {{company}}.\n\nWould you like to know more?\n\nReply:\n1 - Yes\n2 - No",
+        createdById: adminId,
+        createdByName: adminName,
+        createdAt: new Date().toLocaleDateString(),
+      },
+    ];
+
+    // Standard starter follow-up workflow
+    const starterWorkflow: Workflow = {
+      id: `wf-1`,
+      agencyId: orgId,
+      name: "Standard Response-Based Follow-up",
+      description: "Send initial email/WhatsApp ➔ Wait 2 days ➔ Check Response ➔ Positive: Stop & Notify / Negative: Stop / No Response: Drip Follow-up",
+      trigger: "Lead Added",
+      steps: [
+        {
+          id: "step-1",
+          stepNumber: 1,
+          dayDelay: 0,
+          channel: "Email",
+          templateId: starterTemplates[0].id,
+          templateName: starterTemplates[0].name,
+          actionTitle: "Initial Email Outreach",
+        },
+        {
+          id: "step-2",
+          stepNumber: 2,
+          dayDelay: 2,
+          channel: "WhatsApp",
+          templateId: starterTemplates[1].id,
+          templateName: starterTemplates[1].name,
+          actionTitle: "Follow-up WhatsApp Message",
+        },
+      ],
+      onPositiveResponse: "Status = Interested & Stop automated messages & Notify Employee",
+      onNegativeResponse: "Status = Not Interested & Stop Campaign",
+      onNoResponse: "Send Next Follow-up",
+      isActive: true,
+      createdById: adminId,
+      createdByName: adminName,
+      enrolledLeadsCount: 0,
+      createdAt: new Date().toLocaleDateString(),
     };
 
     setOrganization(newOrg);
-    setIsAuthenticated(true);
-    setAuditLogs([initialLog]);
-    setAllContacts([]);
-    setLeadLists([]);
-    setTasks([]);
-    setDeals([]);
+    setCurrentUser(adminUser);
+    setUsers([adminUser]);
+    setLeads([]);
+    setFolders([]);
+    setTemplates(starterTemplates);
     setCampaigns([]);
+    setWorkflows([starterWorkflow]);
+    setResponses([]);
 
-    persistState(newOrg, [currentUser], [], [], [initialLog]);
+    persist(
+      newOrg,
+      adminUser,
+      [adminUser],
+      [],
+      [],
+      starterTemplates,
+      [],
+      [starterWorkflow],
+      [],
+      smtpSettings,
+      whatsAppSettings
+    );
+
+    return newOrg;
   };
 
-  // Logout
+  // Join Agency (Manager or Employee)
+  const joinAgency = ({
+    joinCode,
+    name,
+    email,
+    role,
+    managerId,
+  }: {
+    joinCode: string;
+    name: string;
+    email: string;
+    role: "MANAGER" | "EMPLOYEE";
+    managerId?: string;
+  }): { success: boolean; message: string } => {
+    if (!organization || organization.joinCode.toUpperCase() !== joinCode.trim().toUpperCase()) {
+      return { success: false, message: "Invalid Agency Join Code. Please check with your Main Admin." };
+    }
+
+    const assignedManager = users.find((u) => u.id === managerId);
+
+    const newUser: User = {
+      id: `usr-${role.toLowerCase()}-${Date.now()}`,
+      name,
+      email,
+      role,
+      agencyId: organization.id,
+      managerId: role === "EMPLOYEE" ? managerId : undefined,
+      managerName: role === "EMPLOYEE" ? assignedManager?.name : undefined,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      permissions: {
+        addLeads: true,
+        importLeads: true,
+        emailMarketing: true,
+        whatsAppMarketing: true,
+        createTemplates: true,
+        createWorkflows: true,
+      },
+    };
+
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    setCurrentUser(newUser);
+
+    persist(
+      organization,
+      newUser,
+      updatedUsers,
+      leads,
+      folders,
+      templates,
+      campaigns,
+      workflows,
+      responses,
+      smtpSettings,
+      whatsAppSettings
+    );
+
+    return { success: true, message: `Successfully joined ${organization.name} as ${role}!` };
+  };
+
+  const login = (email: string): { success: boolean; message: string } => {
+    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      return { success: false, message: "User not found with this email." };
+    }
+    if (!user.isActive) {
+      return { success: false, message: "This user account has been deactivated by the Admin." };
+    }
+    setCurrentUser(user);
+    persist(
+      organization,
+      user,
+      users,
+      leads,
+      folders,
+      templates,
+      campaigns,
+      workflows,
+      responses,
+      smtpSettings,
+      whatsAppSettings
+    );
+    return { success: true, message: `Welcome back, ${user.name}!` };
+  };
+
   const logout = () => {
-    setIsAuthenticated(false);
+    setCurrentUser(null);
+  };
+
+  const switchUser = (userId: string) => {
+    const target = users.find((u) => u.id === userId);
+    if (target) {
+      setCurrentUser(target);
+      persist(
+        organization,
+        target,
+        users,
+        leads,
+        folders,
+        templates,
+        campaigns,
+        workflows,
+        responses,
+        smtpSettings,
+        whatsAppSettings
+      );
+    }
+  };
+
+  const resetAll = () => {
     setOrganization(null);
-    persistState(null, [], [], [], []);
+    setCurrentUser(null);
+    setUsers([]);
+    setLeads([]);
+    setFolders([]);
+    setTemplates([]);
+    setCampaigns([]);
+    setWorkflows([]);
+    setResponses([]);
+    localStorage.clear();
   };
 
-  // Reset workspace
-  const resetWorkspace = () => {
-    logout();
-  };
-
-  // Add Manager
-  const addManager = (data: { name: string; email: string; department?: string; territory?: string }): User => {
+  // User Management
+  const createManager = (data: { name: string; email: string }): User => {
+    if (!organization) throw new Error("No active agency");
     const newMgr: User = {
       id: `usr-mgr-${Date.now()}`,
       name: data.name,
       email: data.email,
       role: "MANAGER",
-      customRoleName: "Sales Pod Manager",
-      department: data.department || "Sales Pod",
-      territory: data.territory || "National",
-      activeLeadsCount: 0,
-      managedEmployeeIds: [],
+      agencyId: organization.id,
+      isActive: true,
+      createdAt: new Date().toISOString(),
     };
     const updatedUsers = [...users, newMgr];
     setUsers(updatedUsers);
-    addAuditLog({
-      action: "CREATED_MANAGER",
-      entityType: "USER",
-      entityName: newMgr.name,
-      details: `Created manager for pod: ${newMgr.department}`,
-    });
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
     return newMgr;
   };
 
-  // Add Employee
-  const addEmployee = (data: { name: string; email: string; role?: string; managerId?: string; department?: string }): User => {
-    const manager = users.find((u) => u.id === data.managerId);
+  const createEmployee = (data: { name: string; email: string; managerId?: string }): User => {
+    if (!organization) throw new Error("No active agency");
+    const mgr = users.find((u) => u.id === data.managerId);
     const newEmp: User = {
       id: `usr-emp-${Date.now()}`,
       name: data.name,
       email: data.email,
       role: "EMPLOYEE",
-      customRoleName: data.role || "Sales Representative",
+      agencyId: organization.id,
       managerId: data.managerId,
-      managerName: manager?.name,
-      department: data.department || manager?.department || "Sales Pod",
-      activeLeadsCount: 0,
+      managerName: mgr?.name,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      permissions: {
+        addLeads: true,
+        importLeads: true,
+        emailMarketing: true,
+        whatsAppMarketing: true,
+        createTemplates: true,
+        createWorkflows: true,
+      },
     };
-
-    const updatedUsers = users.map((u) => {
-      if (u.id === data.managerId) {
-        return {
-          ...u,
-          managedEmployeeIds: [...(u.managedEmployeeIds || []), newEmp.id],
-        };
-      }
-      return u;
-    });
-
-    const finalUsers = [...updatedUsers, newEmp];
-    setUsers(finalUsers);
-    addAuditLog({
-      action: "CREATED_EMPLOYEE",
-      entityType: "USER",
-      entityName: newEmp.name,
-      details: `Added employee to manager ${manager?.name || "Unassigned"}`,
-    });
+    const updatedUsers = [...users, newEmp];
+    setUsers(updatedUsers);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
     return newEmp;
   };
 
-  // Switch role helper for demonstration
-  const switchUserRole = (role: "MAIN_ADMIN" | "MANAGER" | "EMPLOYEE") => {
-    const targetUser = users.find((u) => u.role === role) || users[0];
-    setCurrentUser(targetUser);
+  const assignEmployeeToManager = (employeeId: string, managerId: string) => {
+    const mgr = users.find((u) => u.id === managerId);
+    const updatedUsers = users.map((u) =>
+      u.id === employeeId ? { ...u, managerId, managerName: mgr?.name } : u
+    );
+    setUsers(updatedUsers);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
   };
 
-  // Scoped Contacts
-  const scopedContacts = useMemo(() => {
-    if (currentUser.role === "MAIN_ADMIN") {
-      return allContacts;
-    } else if (currentUser.role === "MANAGER") {
-      const teamIds = new Set([currentUser.id, ...(currentUser.managedEmployeeIds || [])]);
-      return allContacts.filter((c) => teamIds.has(c.ownerId) || c.managerId === currentUser.id);
-    } else {
-      return allContacts.filter((c) => c.ownerId === currentUser.id);
-    }
-  }, [allContacts, currentUser]);
-
-  // Scoped Tasks
-  const scopedTasks = useMemo(() => {
-    if (currentUser.role === "MAIN_ADMIN") {
-      return tasks;
-    } else if (currentUser.role === "MANAGER") {
-      const teamIds = new Set([currentUser.id, ...(currentUser.managedEmployeeIds || [])]);
-      return tasks.filter((t) => teamIds.has(t.assignedToId) || t.managerId === currentUser.id);
-    } else {
-      return tasks.filter((t) => t.assignedToId === currentUser.id);
-    }
-  }, [tasks, currentUser]);
-
-  // Audit Logging
-  const addAuditLog = (logData: Partial<AuditLog>) => {
-    const newLog: AuditLog = {
-      id: `log-${Date.now()}`,
-      userId: currentUser.id,
-      userName: currentUser.name,
-      userRole: currentUser.role,
-      action: logData.action || "PERFORMED_ACTION",
-      entityType: logData.entityType || "LEAD",
-      entityName: logData.entityName || "General",
-      details: logData.details || "",
-      timestamp: "Just now",
-      ipAddress: "127.0.0.1",
-    };
-    const updated = [newLog, ...auditLogs];
-    setAuditLogs(updated);
-    persistState(organization, users, allContacts, leadLists, updated);
+  const toggleUserActive = (userId: string) => {
+    const updatedUsers = users.map((u) =>
+      u.id === userId ? { ...u, isActive: !u.isActive } : u
+    );
+    setUsers(updatedUsers);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
   };
 
-  // Lead Journey
-  const addLeadJourneyStep = (leadId: string, step: Partial<LeadJourneyStep>) => {
-    const newStep: LeadJourneyStep = {
-      id: `j-${Date.now()}`,
-      title: step.title || "Action Recorded",
-      description: step.description || "",
-      timestamp: "Just now",
-      actor: step.actor || currentUser.name,
-      channel: step.channel || "SYSTEM",
-      status: step.status || "COMPLETED",
+  const updateUserPermissions = (userId: string, perms: Partial<UserPermissions>) => {
+    const updatedUsers = users.map((u) =>
+      u.id === userId ? { ...u, permissions: { ...(u.permissions || {}), ...perms } } : u
+    );
+    setUsers(updatedUsers);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+  };
+
+  // Lead Activity Helper
+  const addLeadActivity = (leadId: string, activity: Omit<LeadActivity, "id" | "timestamp">) => {
+    const newAct: LeadActivity = {
+      id: `act-${Date.now()}`,
+      timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+      action: activity.action,
+      channel: activity.channel,
+      details: activity.details,
+      actor: activity.actor || currentUser?.name || "System",
     };
 
-    setLeadJourneys((prev) => ({
-      ...prev,
-      [leadId]: [...(prev[leadId] || []), newStep],
-    }));
+    setLeads((prev) =>
+      prev.map((l) => (l.id === leadId ? { ...l, activities: [newAct, ...(l.activities || [])] } : l))
+    );
   };
 
-  // Import contacts
-  const importContacts = (rows: CleanedContactRow[], listName: string) => {
-    const newListId = `list-${Date.now()}`;
-    const newList: LeadList = {
-      id: newListId,
-      name: listName || `Imported by ${currentUser.name} — ${new Date().toLocaleDateString()}`,
+  // Add Single Lead
+  const addLead = (data: Partial<Lead>): Lead => {
+    if (!organization || !currentUser) throw new Error("Unauthenticated");
+
+    const newId = `lead-${Date.now()}`;
+    const initialActivity: LeadActivity = {
+      id: `act-${Date.now()}`,
+      timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      action: "Lead Added",
+      channel: "System",
+      details: `Added manually by ${currentUser.name}`,
+      actor: currentUser.name,
+    };
+
+    const newLead: Lead = {
+      id: newId,
+      agencyId: organization.id,
+      name: data.name || "New Lead",
+      company: data.company || "",
+      email: data.email || "",
+      phone: data.phone || "",
+      whatsApp: data.whatsApp || data.phone || "",
+      website: data.website || "",
+      source: data.source || "Manual Entry",
+      status: data.status || "New",
+      notes: data.notes || "",
+      tags: data.tags || ["Lead"],
+      folderId: data.folderId,
+      folderName: data.folderName,
+      createdById: currentUser.id,
+      createdByName: currentUser.name,
+      assignedEmployeeId: data.assignedEmployeeId || currentUser.id,
+      assignedEmployeeName: data.assignedEmployeeName || currentUser.name,
+      managerId: currentUser.role === "EMPLOYEE" ? currentUser.managerId : undefined,
+      managerName: currentUser.role === "EMPLOYEE" ? currentUser.managerName : undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      activities: [initialActivity],
+    };
+
+    const updatedLeads = [newLead, ...leads];
+    setLeads(updatedLeads);
+
+    // Update folder counts
+    if (newLead.folderId) {
+      setFolders((prev) =>
+        prev.map((f) =>
+          f.id === newLead.folderId
+            ? { ...f, leadCount: f.leadCount + 1, newCount: f.newCount + 1 }
+            : f
+        )
+      );
+    }
+
+    persist(organization, currentUser, users, updatedLeads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    return newLead;
+  };
+
+  // Bulk Import Leads (Excel/CSV or OCR Scan)
+  const bulkImportLeads = (
+    leadRows: Array<{ name: string; company?: string; email?: string; phone?: string; whatsApp?: string; source?: string }>,
+    folderName: string
+  ): { importedCount: number; folderId: string } => {
+    if (!organization || !currentUser) throw new Error("Unauthenticated");
+
+    const folderId = `folder-${Date.now()}`;
+    const newFolder: LeadFolder = {
+      id: folderId,
+      agencyId: organization.id,
+      name: folderName || `Imported Leads — ${new Date().toLocaleDateString()}`,
       createdById: currentUser.id,
       createdByName: currentUser.name,
       createdAt: new Date().toLocaleDateString(),
-      leadCount: rows.length,
-      source: "EXCEL_IMPORT",
-      assignedWorkflowId: "auto-1",
-      assignedWorkflowName: "Response-Based 360° Follow-up Engine",
+      leadCount: leadRows.length,
+      newCount: leadRows.length,
+      contactedCount: 0,
+      interestedCount: 0,
+      notInterestedCount: 0,
+      convertedCount: 0,
     };
 
-    const updatedLists = [newList, ...leadLists];
-    setLeadLists(updatedLists);
-
-    // Assign to current user or available employee
-    const assignedRep = users.find((u) => u.role === "EMPLOYEE") || currentUser;
-    const manager = users.find((u) => u.role === "MANAGER") || currentUser;
-
-    const newContacts: Contact[] = rows.map((row, idx) => {
-      const tags = row.tags.map((t, tIdx) => ({ id: `t-${idx}-${tIdx}`, name: t, color: "#3B82F6" }));
-      const newId = `lead-${Date.now()}-${idx}`;
-
+    const newLeads: Lead[] = leadRows.map((row, idx) => {
+      const leadId = `lead-${Date.now()}-${idx}`;
       return {
-        id: newId,
-        name: row.name,
-        email: row.email,
-        phone: row.phone,
-        company: row.company,
-        title: row.title,
-        location: row.location,
-        source: row.source || "EXCEL_IMPORT",
-        status: row.status || "NEW",
-        leadScore: row.leadScore || 70,
-        customFields: row.customFields,
-        
+        id: leadId,
+        agencyId: organization.id,
+        name: row.name || `Contact ${idx + 1}`,
+        company: row.company || "",
+        email: row.email || "",
+        phone: row.phone || "",
+        whatsApp: row.whatsApp || row.phone || "",
+        source: row.source || "Excel/CSV Upload",
+        status: "New",
+        tags: ["Imported", folderName],
+        folderId,
+        folderName: newFolder.name,
         createdById: currentUser.id,
         createdByName: currentUser.name,
-        ownerId: assignedRep.id,
-        ownerName: assignedRep.name,
-        managerId: manager.id,
-        managerName: manager.name,
-        
-        leadListId: newListId,
-        leadListName: newList.name,
-        activeWorkflowId: "auto-1",
-        activeWorkflowName: "Response-Based 360° Follow-up Engine",
-        doNotContact: false,
-        
-        tags,
+        assignedEmployeeId: currentUser.id,
+        assignedEmployeeName: currentUser.name,
+        managerId: currentUser.managerId,
+        managerName: currentUser.managerName,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        activities: [
+          {
+            id: `act-${leadId}`,
+            timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            action: "Lead Added via Bulk Import",
+            channel: "System",
+            details: `Imported into folder '${newFolder.name}'`,
+            actor: currentUser.name,
+          },
+        ],
       };
     });
 
-    const updatedContacts = [...newContacts, ...allContacts];
-    setAllContacts(updatedContacts);
+    const updatedLeads = [...newLeads, ...leads];
+    const updatedFolders = [newFolder, ...folders];
 
-    const newJourneys = { ...leadJourneys };
-    newContacts.forEach((c) => {
-      newJourneys[c.id] = [
-        {
-          id: `j-${Date.now()}-${c.id}-1`,
-          title: "Lead Ingested & Sanitized",
-          description: `Imported into list '${newList.name}'. Phone standardized to E.164.`,
-          timestamp: "Just now",
-          actor: currentUser.name,
-          channel: "SYSTEM",
-          status: "COMPLETED",
-        },
-        {
-          id: `j-${Date.now()}-${c.id}-2`,
-          title: "Assigned to Sales Rep",
-          description: `Assigned to ${c.ownerName} under Manager ${c.managerName}.`,
-          timestamp: "Just now",
-          actor: "FlowDesk Router",
-          channel: "SYSTEM",
-          status: "COMPLETED",
-        },
-        {
-          id: `j-${Date.now()}-${c.id}-3`,
-          title: "Enrolled in 'Response-Based Follow-up Engine'",
-          description: "Active auto-followup started with duplicate enrollment check: PASSED.",
-          timestamp: "Just now",
-          actor: "Automation Engine",
-          channel: "SYSTEM",
-          status: "COMPLETED",
-        },
-      ];
-    });
-    setLeadJourneys(newJourneys);
+    setLeads(updatedLeads);
+    setFolders(updatedFolders);
 
-    addAuditLog({
-      action: "IMPORTED_LEADS",
-      entityType: "LEAD",
-      entityName: newList.name,
-      details: `Imported ${rows.length} contacts into folder '${newList.name}'.`,
-    });
-
-    persistState(organization, users, updatedContacts, updatedLists, auditLogs);
+    persist(organization, currentUser, users, updatedLeads, updatedFolders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    return { importedCount: newLeads.length, folderId };
   };
 
-  const createLeadList = (name: string, description?: string): LeadList => {
-    const newList: LeadList = {
-      id: `list-${Date.now()}`,
+  const updateLeadStatus = (leadId: string, status: LeadStatus) => {
+    setLeads((prev) => {
+      const updated = prev.map((l) => {
+        if (l.id === leadId) {
+          const act: LeadActivity = {
+            id: `act-${Date.now()}`,
+            timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            action: `Status Changed to ${status}`,
+            channel: "System",
+            actor: currentUser?.name || "System",
+          };
+          return { ...l, status, updatedAt: new Date().toISOString(), activities: [act, ...(l.activities || [])] };
+        }
+        return l;
+      });
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+      return updated;
+    });
+  };
+
+  const deleteLead = (leadId: string) => {
+    setLeads((prev) => {
+      const updated = prev.filter((l) => l.id !== leadId);
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+      return updated;
+    });
+  };
+
+  const addLeadToWorkflow = (leadId: string, workflowId: string): { success: boolean; message: string } => {
+    const targetLead = leads.find((l) => l.id === leadId);
+    const targetWf = workflows.find((w) => w.id === workflowId);
+
+    if (!targetLead || !targetWf) {
+      return { success: false, message: "Lead or workflow not found." };
+    }
+
+    setLeads((prev) =>
+      prev.map((l) => {
+        if (l.id === leadId) {
+          const act: LeadActivity = {
+            id: `act-${Date.now()}`,
+            timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            action: `Added to Workflow: ${targetWf.name}`,
+            channel: "Workflow",
+            details: `Enrolled by ${currentUser?.name || "System"}`,
+            actor: currentUser?.name || "System",
+          };
+          return { ...l, activeWorkflowId: workflowId, activeWorkflowName: targetWf.name, activities: [act, ...(l.activities || [])] };
+        }
+        return l;
+      })
+    );
+
+    setWorkflows((prev) =>
+      prev.map((w) => (w.id === workflowId ? { ...w, enrolledLeadsCount: w.enrolledLeadsCount + 1 } : w))
+    );
+
+    return { success: true, message: `Enrolled ${targetLead.name} into '${targetWf.name}'!` };
+  };
+
+  const createFolder = (name: string): LeadFolder => {
+    if (!organization || !currentUser) throw new Error("Unauthenticated");
+    const newFolder: LeadFolder = {
+      id: `folder-${Date.now()}`,
+      agencyId: organization.id,
       name,
-      description,
       createdById: currentUser.id,
       createdByName: currentUser.name,
       createdAt: new Date().toLocaleDateString(),
       leadCount: 0,
-      source: "MANUAL",
+      newCount: 0,
+      contactedCount: 0,
+      interestedCount: 0,
+      notInterestedCount: 0,
+      convertedCount: 0,
     };
-    const updated = [newList, ...leadLists];
-    setLeadLists(updated);
-    persistState(organization, users, allContacts, updated, auditLogs);
-    return newList;
+    const updated = [newFolder, ...folders];
+    setFolders(updated);
+    persist(organization, currentUser, users, leads, updated, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    return newFolder;
   };
 
-  const updateContact = (id: string, updates: Partial<Contact>) => {
-    setAllContacts((prev) => {
-      const updated = prev.map((c) => (c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c));
-      persistState(organization, users, updated, leadLists, auditLogs);
-      return updated;
-    });
-  };
-
-  const addContact = (contactData: Partial<Contact>): Contact => {
-    const newContact: Contact = {
-      id: `lead-${Date.now()}`,
-      name: contactData.name || "New Contact",
-      email: contactData.email,
-      phone: contactData.phone,
-      company: contactData.company,
-      title: contactData.title,
-      source: contactData.source || "MANUAL",
-      status: contactData.status || "NEW",
-      leadScore: contactData.leadScore || 70,
-      
-      createdById: currentUser.id,
-      createdByName: currentUser.name,
-      ownerId: currentUser.id,
-      ownerName: currentUser.name,
-      managerId: currentUser.managerId || currentUser.id,
-      managerName: currentUser.managerName || currentUser.name,
-      
-      tags: contactData.tags || [{ id: "t-new", name: "Lead", color: "#3B82F6" }],
-      doNotContact: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const updated = [newContact, ...allContacts];
-    setAllContacts(updated);
-    addLeadJourneyStep(newContact.id, {
-      title: "Lead Created Manually",
-      description: `Created and owned by ${currentUser.name}.`,
-    });
-    persistState(organization, users, updated, leadLists, auditLogs);
-    return newContact;
-  };
-
-  const deleteContact = (id: string) => {
-    setAllContacts((prev) => {
-      const updated = prev.filter((c) => c.id !== id);
-      persistState(organization, users, updated, leadLists, auditLogs);
-      return updated;
-    });
-  };
-
-  const toggleDoNotContact = (id: string) => {
-    setAllContacts((prev) =>
-      prev.map((c) => {
-        if (c.id === id) {
-          const nextVal = !c.doNotContact;
-          addAuditLog({
-            action: nextVal ? "MARKED_DO_NOT_CONTACT" : "UNMARKED_DO_NOT_CONTACT",
-            entityType: "LEAD",
-            entityName: c.name,
-            details: nextVal ? "Customer opted out or replied STOP. Halting all automation." : "Opt-out removed.",
-          });
-          return {
-            ...c,
-            doNotContact: nextVal,
-            status: nextVal ? "DO_NOT_CONTACT" : c.status,
-            activeWorkflowId: nextVal ? undefined : c.activeWorkflowId,
-          };
-        }
-        return c;
-      })
-    );
-  };
-
-  const enrollLeadInWorkflow = (leadId: string, workflowId: string): { success: boolean; message: string } => {
-    const targetLead = allContacts.find((c) => c.id === leadId);
-    const targetWorkflow = automations.find((a) => a.id === workflowId);
-
-    if (!targetLead || !targetWorkflow) {
-      return { success: false, message: "Lead or workflow not found." };
-    }
-
-    if (targetLead.doNotContact) {
-      return { success: false, message: "Cannot enroll: Lead is marked Do-Not-Contact (Opted Out)." };
-    }
-
-    if (targetLead.activeWorkflowId === workflowId) {
-      return {
-        success: false,
-        message: `Enrollment Blocked: Lead is ALREADY active in '${targetWorkflow.name}'. Duplicate message prevention safeguard triggered.`,
-      };
-    }
-
-    updateContact(leadId, {
-      activeWorkflowId: workflowId,
-      activeWorkflowName: targetWorkflow.name,
-    });
-
-    addLeadJourneyStep(leadId, {
-      title: `Enrolled in '${targetWorkflow.name}'`,
-      description: `Manually enrolled by ${currentUser.name}.`,
-    });
-
-    return {
-      success: true,
-      message: `Successfully enrolled ${targetLead.name} in '${targetWorkflow.name}'!`,
-    };
-  };
-
-  const createCustomRole = (roleData: Partial<CustomRole>): CustomRole => {
-    const newRole: CustomRole = {
-      id: `role-${Date.now()}`,
-      name: roleData.name || "Custom Role",
-      description: roleData.description || "",
-      permissions: roleData.permissions || ["LEAD_VIEW_OWN", "ANALYTICS_OWN"],
-      isSystem: false,
-    };
-    setCustomRoles((prev) => [...prev, newRole]);
-    addAuditLog({
-      action: "CREATED_CUSTOM_ROLE",
-      entityType: "USER",
-      entityName: newRole.name,
-      details: `Configured permissions: ${newRole.permissions.join(", ")}`,
-    });
-    return newRole;
-  };
-
-  const createTemplate = (tplData: Partial<MessageTemplate>): MessageTemplate => {
-    const newTpl: MessageTemplate = {
+  // Templates
+  const createTemplate = (data: Omit<MarketingTemplate, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName">): MarketingTemplate => {
+    if (!organization || !currentUser) throw new Error("Unauthenticated");
+    const newTpl: MarketingTemplate = {
       id: `tpl-${Date.now()}`,
-      name: tplData.name || "custom_template",
-      channel: tplData.channel || "WHATSAPP",
-      body: tplData.body || "",
-      subject: tplData.subject,
-      category: "MARKETING",
-      status: currentUser.role === "MAIN_ADMIN" ? "APPROVED" : "PENDING_APPROVAL",
-      isCompanyWide: Boolean(tplData.isCompanyWide),
+      agencyId: organization.id,
+      name: data.name,
+      channel: data.channel,
+      subject: data.subject,
+      body: data.body,
       createdById: currentUser.id,
       createdByName: currentUser.name,
       createdAt: new Date().toLocaleDateString(),
-      approvedBy: currentUser.role === "MAIN_ADMIN" ? currentUser.name : undefined,
     };
-    setTemplates((prev) => [newTpl, ...prev]);
+    const updated = [newTpl, ...templates];
+    setTemplates(updated);
+    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
     return newTpl;
   };
 
-  const approveTemplate = (id: string) => {
-    setTemplates((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? { ...t, status: "APPROVED", approvedBy: `${currentUser.name} (Admin)` }
-          : t
-      )
-    );
-    addAuditLog({
-      action: "APPROVED_TEMPLATE",
-      entityType: "TEMPLATE",
-      entityName: id,
-      details: `Template approved for company-wide deployment by ${currentUser.name}.`,
-    });
+  const deleteTemplate = (id: string) => {
+    const updated = templates.filter((t) => t.id !== id);
+    setTemplates(updated);
+    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
   };
 
-  const toggleAutomationStatus = (id: string) => {
-    setAutomations((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: a.status === "ACTIVE" ? "PAUSED" : "ACTIVE" } : a))
-    );
-  };
+  // Campaigns
+  const createCampaign = (data: Omit<Campaign, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "sentCount" | "deliveredCount" | "openedCount" | "repliedCount" | "positiveResponses" | "negativeResponses" | "failedCount">): Campaign => {
+    if (!organization || !currentUser) throw new Error("Unauthenticated");
+    const targetFolder = folders.find((f) => f.id === data.folderId);
+    const targetTemplate = templates.find((t) => t.id === data.templateId);
 
-  const updateAutomation = (id: string, updates: Partial<Automation>) => {
-    setAutomations((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
-  };
-
-  const createAutomation = (autoData: Partial<Automation>): Automation => {
-    const newAuto: Automation = {
-      id: `auto-${Date.now()}`,
-      name: autoData.name || "Custom Automation",
-      description: autoData.description || "Custom business workflow",
-      status: "ACTIVE",
-      category: autoData.category || "CUSTOM",
-      triggerType: autoData.triggerType || "LEAD_CREATED",
-      executionCount: 0,
-      successCount: 0,
-      failureCount: 0,
+    const newCampaign: Campaign = {
+      id: `cmp-${Date.now()}`,
+      agencyId: organization.id,
+      name: data.name,
+      folderId: data.folderId,
+      folderName: targetFolder?.name || data.folderName,
+      channel: data.channel,
+      templateId: data.templateId,
+      templateName: targetTemplate?.name || data.templateName,
+      status: data.status || "Running",
+      scheduledAt: data.scheduledAt,
       createdById: currentUser.id,
       createdByName: currentUser.name,
-      flowDefinition: autoData.flowDefinition || {
-        nodes: [
-          {
-            id: "node-1",
-            type: "trigger",
-            position: { x: 250, y: 50 },
-            data: { label: "WHEN: Lead Ingested / Enrolled", type: "trigger", config: {} },
-          },
-        ],
-        edges: [],
-      },
+      totalLeads: targetFolder?.leadCount || data.totalLeads || 0,
+      sentCount: targetFolder?.leadCount || data.totalLeads || 0,
+      deliveredCount: Math.round((targetFolder?.leadCount || data.totalLeads || 0) * 0.98),
+      openedCount: data.channel === "Email" ? Math.round((targetFolder?.leadCount || data.totalLeads || 0) * 0.45) : undefined,
+      repliedCount: 0,
+      positiveResponses: 0,
+      negativeResponses: 0,
+      failedCount: 0,
+      createdAt: new Date().toLocaleDateString(),
     };
-    setAutomations((prev) => [newAuto, ...prev]);
-    return newAuto;
+
+    const updated = [newCampaign, ...campaigns];
+    setCampaigns(updated);
+    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, responses, smtpSettings, whatsAppSettings);
+    return newCampaign;
   };
 
-  const triggerAutomationTest = async (
-    id: string,
-    contactId?: string
-  ): Promise<{ success: boolean; log: string[] }> => {
-    const targetContact = contactId
-      ? allContacts.find((c) => c.id === contactId) || allContacts[0]
-      : allContacts[0];
-
-    const logs: string[] = [
-      `[${new Date().toLocaleTimeString()}] Trigger event 'LEAD_CREATED' received for ${targetContact?.name || "Lead"}`,
-      `[${new Date().toLocaleTimeString()}] Safety Check: Verify duplicate enrollment & Do-Not-Contact flag: PASSED`,
-      `[${new Date().toLocaleTimeString()}] Lead assigned to ${targetContact?.ownerName || currentUser.name}`,
-      `[${new Date().toLocaleTimeString()}] Official WhatsApp Cloud API: Sent template 'lead_welcome_intro' to ${targetContact?.phone || "+91 98765 00000"} (Status: DELIVERED)`,
-      `[${new Date().toLocaleTimeString()}] Response Listener Activated: Pausing for customer reply with AI Intent Classifier`,
-    ];
-
-    setAutomations((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, executionCount: a.executionCount + 1, successCount: a.successCount + 1, lastRunAt: "Just now" } : a))
-    );
-
-    return { success: true, log: logs };
+  const updateCampaignStatus = (campaignId: string, status: Campaign["status"]) => {
+    const updated = campaigns.map((c) => (c.id === campaignId ? { ...c, status } : c));
+    setCampaigns(updated);
+    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, responses, smtpSettings, whatsAppSettings);
   };
 
-  const toggleTaskStatus = (id: string) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? { ...t, status: t.status === "COMPLETED" ? "PENDING" : "COMPLETED" }
-          : t
-      )
-    );
-  };
-
-  const addTask = (taskData: Partial<Task>) => {
-    const newTask: Task = {
-      id: `task-${Date.now()}`,
-      title: taskData.title || "Follow up with client",
-      description: taskData.description,
-      contactId: taskData.contactId,
-      contactName: taskData.contactName,
-      dueDate: taskData.dueDate || "Today",
-      priority: taskData.priority || "MEDIUM",
-      status: "PENDING",
-      assignedToId: currentUser.id,
-      assignedToName: currentUser.name,
-      managerId: currentUser.managerId || currentUser.id,
+  // Workflows
+  const createWorkflow = (data: Omit<Workflow, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "enrolledLeadsCount">): Workflow => {
+    if (!organization || !currentUser) throw new Error("Unauthenticated");
+    const newWf: Workflow = {
+      id: `wf-${Date.now()}`,
+      agencyId: organization.id,
+      name: data.name,
+      description: data.description,
+      trigger: data.trigger,
+      steps: data.steps,
+      onPositiveResponse: data.onPositiveResponse,
+      onNegativeResponse: data.onNegativeResponse,
+      onNoResponse: data.onNoResponse,
+      isActive: true,
+      createdById: currentUser.id,
+      createdByName: currentUser.name,
+      enrolledLeadsCount: 0,
+      createdAt: new Date().toLocaleDateString(),
     };
-    setTasks((prev) => [newTask, ...prev]);
+    const updated = [newWf, ...workflows];
+    setWorkflows(updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, responses, smtpSettings, whatsAppSettings);
+    return newWf;
   };
 
-  const updateDealStage = (id: string, stage: Deal["stage"]) => {
-    setDeals((prev) => prev.map((d) => (d.id === id ? { ...d, stage } : d)));
+  const toggleWorkflowActive = (workflowId: string) => {
+    const updated = workflows.map((w) => (w.id === workflowId ? { ...w, isActive: !w.isActive } : w));
+    setWorkflows(updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, responses, smtpSettings, whatsAppSettings);
   };
 
-  const sendMessage = (contactId: string, content: string, channel: "WHATSAPP" | "EMAIL" = "WHATSAPP") => {
-    const newMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      contactId,
+  // Responses
+  const recordResponse = (leadId: string, message: string, sentiment: "Positive" | "Negative" | "Question", channel: "WhatsApp" | "Email") => {
+    const lead = leads.find((l) => l.id === leadId);
+    const newResp: LeadResponse = {
+      id: `resp-${Date.now()}`,
+      leadId,
+      leadName: lead?.name || "Lead",
+      leadPhone: lead?.phone,
+      leadEmail: lead?.email,
       channel,
-      direction: "OUTBOUND",
-      status: "DELIVERED",
-      senderName: currentUser.name,
-      content,
-      timestamp: "Just now",
+      message,
+      sentiment,
+      timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+      handled: false,
     };
 
-    setChats((prev) => ({
-      ...prev,
-      [contactId]: [...(prev[contactId] || []), newMsg],
-    }));
+    setResponses((prev) => [newResp, ...prev]);
 
-    addLeadJourneyStep(contactId, {
-      title: `${channel === "WHATSAPP" ? "WhatsApp Message" : "Email"} Sent`,
-      description: content.length > 80 ? content.slice(0, 80) + "..." : content,
-      channel,
-      actor: currentUser.name,
-    });
+    // Apply PDF business logic on response
+    if (sentiment === "Positive") {
+      updateLeadStatus(leadId, "Interested");
+      addLeadActivity(leadId, {
+        action: "Positive Response Received",
+        channel,
+        details: `Customer replied: '${message}' ➔ Status set to Interested & automated workflow paused.`,
+        actor: "Response Tracker",
+      });
+    } else if (sentiment === "Negative") {
+      updateLeadStatus(leadId, "Not Interested");
+      addLeadActivity(leadId, {
+        action: "Negative Response Received",
+        channel,
+        details: `Customer replied: '${message}' ➔ Status set to Not Interested & campaign stopped.`,
+        actor: "Response Tracker",
+      });
+    }
+  };
+
+  const markResponseHandled = (responseId: string) => {
+    setResponses((prev) => prev.map((r) => (r.id === responseId ? { ...r, handled: true } : r)));
+  };
+
+  const saveSMTPSettings = (settings: Partial<SMTPSettings>) => {
+    const updated = { ...smtpSettings, ...settings, isConfigured: true };
+    setSmtpSettings(updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, responses, updated, whatsAppSettings);
+  };
+
+  const saveWhatsAppSettings = (settings: Partial<WhatsAppAPISettings>) => {
+    const updated = { ...whatsAppSettings, ...settings, isConfigured: true };
+    setWhatsAppSettings(updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, responses, smtpSettings, updated);
   };
 
   return (
     <FlowDeskStoreContext.Provider
       value={{
-        isAuthenticated,
         organization,
         currentUser,
-        setCurrentUser,
-        switchUserRole,
-        login,
-        createAgency,
-        logout,
-        resetWorkspace,
-        contacts: scopedContacts,
-        allContacts,
-        leadLists,
-        customRoles,
-        templates,
-        auditLogs,
-        leadJourneys,
-        deals,
-        automations,
-        tasks: scopedTasks,
-        events,
-        chats,
-        campaigns,
         users,
-        addManager,
-        addEmployee,
-        importContacts,
-        updateContact,
-        addContact,
-        deleteContact,
-        toggleDoNotContact,
-        enrollLeadInWorkflow,
-        createLeadList,
-        addLeadJourneyStep,
-        createCustomRole,
+        leads,
+        scopedLeads,
+        folders,
+        templates,
+        campaigns,
+        workflows,
+        responses,
+        smtpSettings,
+        whatsAppSettings,
+        createAgency,
+        joinAgency,
+        login,
+        logout,
+        switchUser,
+        resetAll,
+        createManager,
+        createEmployee,
+        assignEmployeeToManager,
+        toggleUserActive,
+        updateUserPermissions,
+        addLead,
+        bulkImportLeads,
+        updateLeadStatus,
+        deleteLead,
+        addLeadActivity,
+        addLeadToWorkflow,
+        createFolder,
         createTemplate,
-        approveTemplate,
-        addAuditLog,
-        toggleAutomationStatus,
-        updateAutomation,
-        createAutomation,
-        triggerAutomationTest,
-        toggleTaskStatus,
-        addTask,
-        updateDealStage,
-        sendMessage,
+        deleteTemplate,
+        createCampaign,
+        updateCampaignStatus,
+        createWorkflow,
+        toggleWorkflowActive,
+        recordResponse,
+        markResponseHandled,
+        saveSMTPSettings,
+        saveWhatsAppSettings,
       }}
     >
       {children}
