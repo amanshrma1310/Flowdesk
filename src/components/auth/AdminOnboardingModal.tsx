@@ -70,7 +70,7 @@ export function AdminOnboardingModal() {
 
   const managersList = users.filter((u) => u.role === "MANAGER");
 
-  const handleCreateAgency = (e: React.FormEvent) => {
+  const handleCreateAgency = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!agencyName.trim() || !adminName.trim() || !adminEmail.trim()) {
       setErrorMsg("Please fill in all required fields.");
@@ -81,14 +81,14 @@ export function AdminOnboardingModal() {
       return;
     }
     setErrorMsg(null);
-    createAgency({
+    await createAgency({
       agencyName,
       adminName,
       adminEmail,
     });
   };
 
-  const handleJoinAgency = (e: React.FormEvent) => {
+  const handleJoinAgency = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim() || !joinName.trim() || !joinEmail.trim()) {
       setErrorMsg("Please enter the Agency Join Code, Name, and Email.");
@@ -99,7 +99,7 @@ export function AdminOnboardingModal() {
       return;
     }
     setErrorMsg(null);
-    const res = joinAgency({
+    const res = await joinAgency({
       joinCode,
       name: joinName,
       email: joinEmail,

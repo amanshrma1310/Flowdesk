@@ -34,8 +34,8 @@ interface FlowDeskStoreContextType {
   whatsAppSettings: WhatsAppAPISettings;
 
   // Auth & Agency Operations
-  createAgency: (data: { agencyName: string; adminName: string; adminEmail: string }) => Organization;
-  joinAgency: (data: { joinCode: string; name: string; email: string; role: "MANAGER" | "EMPLOYEE"; managerId?: string }) => { success: boolean; message: string };
+  createAgency: (data: { agencyName: string; adminName: string; adminEmail: string }) => Promise<Organization>;
+  joinAgency: (data: { joinCode: string; name: string; email: string; role: "MANAGER" | "EMPLOYEE"; managerId?: string }) => Promise<{ success: boolean; message: string }>;
   login: (email: string) => { success: boolean; message: string };
   logout: () => void;
   switchUser: (userId: string) => void;
@@ -59,12 +59,15 @@ interface FlowDeskStoreContextType {
 
   // Marketing & Campaigns
   createTemplate: (data: Omit<MarketingTemplate, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName">) => MarketingTemplate;
+  updateTemplate: (id: string, data: Partial<MarketingTemplate>) => void;
   deleteTemplate: (id: string) => void;
   createCampaign: (data: Omit<Campaign, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "sentCount" | "deliveredCount" | "openedCount" | "repliedCount" | "positiveResponses" | "negativeResponses" | "failedCount">) => Campaign;
   updateCampaignStatus: (campaignId: string, status: Campaign["status"]) => void;
 
   // Workflows & Follow-ups
   createWorkflow: (data: Omit<Workflow, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "enrolledLeadsCount">) => Workflow;
+  updateWorkflow: (id: string, data: Partial<Workflow>) => void;
+  deleteWorkflow: (id: string) => void;
   toggleWorkflowActive: (workflowId: string) => void;
 
   // Responses
@@ -169,6 +172,21 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         localStorage.setItem("fd_marketing_responses", JSON.stringify(rList));
         localStorage.setItem("fd_marketing_smtp", JSON.stringify(smtp));
         localStorage.setItem("fd_marketing_wa", JSON.stringify(wa));
+
+        // Sync with server API for cross-tab and cross-incognito availability
+        fetch("/api/v1/agencies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "CREATE_AGENCY",
+            agency: {
+              ...org,
+              users: uList,
+              templates: tList,
+              workflows: wList,
+            },
+          }),
+        }).catch(() => {});
       } else {
         localStorage.clear();
       }
@@ -177,7 +195,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     }
   };
 
-  // Scoped leads based on hierarchy: Admin sees all; Manager sees team's leads; Employee sees assigned leads
+  // Scoped leads based on hierarchy
   const scopedLeads = useMemo(() => {
     if (!currentUser) return [];
     if (currentUser.role === "ADMIN") {
@@ -196,7 +214,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   }, [leads, currentUser, users]);
 
   // Create Agency (Admin)
-  const createAgency = ({
+  const createAgency = async ({
     agencyName,
     adminName,
     adminEmail,
@@ -204,15 +222,15 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     agencyName: string;
     adminName: string;
     adminEmail: string;
-  }): Organization => {
+  }): Promise<Organization> => {
     const orgId = `org-${Date.now()}`;
     const code = `${agencyName.slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const adminId = `usr-admin-${Date.now()}`;
 
     const adminUser: User = {
       id: adminId,
-      name: adminName,
-      email: adminEmail,
+      name: adminName.trim(),
+      email: adminEmail.trim().toLowerCase(),
       role: "ADMIN",
       agencyId: orgId,
       isActive: true,
@@ -221,15 +239,14 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
 
     const newOrg: Organization = {
       id: orgId,
-      name: agencyName,
+      name: agencyName.trim(),
       joinCode: code,
       createdAt: new Date().toISOString(),
       adminId,
-      adminName,
-      adminEmail,
+      adminName: adminName.trim(),
+      adminEmail: adminEmail.trim().toLowerCase(),
     };
 
-    // Standard starter templates ready for customization
     const starterTemplates: MarketingTemplate[] = [
       {
         id: `tpl-em-1`,
@@ -254,7 +271,6 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       },
     ];
 
-    // Standard starter follow-up workflow
     const starterWorkflow: Workflow = {
       id: `wf-1`,
       agencyId: orgId,
@@ -318,8 +334,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     return newOrg;
   };
 
-  // Join Agency (Manager or Employee)
-  const joinAgency = ({
+  // Join Agency (Manager or Employee) with cross-tab / incognito server fallback
+  const joinAgency = async ({
     joinCode,
     name,
     email,
@@ -331,9 +347,10 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     email: string;
     role: "MANAGER" | "EMPLOYEE";
     managerId?: string;
-  }): { success: boolean; message: string } => {
-    // Resolve organization from state or localStorage
+  }): Promise<{ success: boolean; message: string }> => {
     let targetOrg = organization;
+
+    // Check localStorage fallback
     if (!targetOrg && typeof window !== "undefined") {
       const saved = localStorage.getItem("fd_marketing_org");
       if (saved) {
@@ -343,26 +360,31 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       }
     }
 
+    const cleanInputCode = joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+
+    // If local targetOrg code does not match or is missing, fetch from global server API
+    if (!targetOrg || targetOrg.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() !== cleanInputCode) {
+      try {
+        const res = await fetch(`/api/v1/agencies?joinCode=${cleanInputCode}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.agency) {
+            targetOrg = data.agency;
+          }
+        }
+      } catch (err) {
+        console.warn("API join lookup failed:", err);
+      }
+    }
+
     if (!targetOrg) {
       return {
         success: false,
-        message: "No agency has been created yet. Please click 'Create Agency' tab to create your agency workspace first.",
+        message: `No active agency found with Join Code "${joinCode}". Please create an agency first or check the code with your Admin.`,
       };
     }
 
-    // Email format validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-    if (!emailRegex.test(email.trim())) {
-      return {
-        success: false,
-        message: "Please enter a valid email address with a domain (e.g. name@agency.com).",
-      };
-    }
-
-    // Normalize code comparison (strip whitespace and hyphens)
-    const cleanInputCode = joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
     const cleanOrgCode = targetOrg.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-
     if (cleanInputCode !== cleanOrgCode) {
       return {
         success: false,
@@ -370,7 +392,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       };
     }
 
-    const assignedManager = users.find((u) => u.id === managerId);
+    const assignedManager = (targetOrg as any).users?.find((u: any) => u.id === managerId) || users.find((u) => u.id === managerId);
 
     const newUser: User = {
       id: `usr-${role.toLowerCase()}-${Date.now()}`,
@@ -392,10 +414,16 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       },
     };
 
-    const updatedUsers = [...users.filter((u) => u.email.toLowerCase() !== newUser.email), newUser];
+    const existingUsers = (targetOrg as any).users || users;
+    const updatedUsers = [...existingUsers.filter((u: any) => u.email.toLowerCase() !== newUser.email), newUser];
+    const updatedTemplates = (targetOrg as any).templates || templates;
+    const updatedWorkflows = (targetOrg as any).workflows || workflows;
+
     setOrganization(targetOrg);
     setUsers(updatedUsers);
     setCurrentUser(newUser);
+    if (templates.length === 0 && updatedTemplates.length > 0) setTemplates(updatedTemplates);
+    if (workflows.length === 0 && updatedWorkflows.length > 0) setWorkflows(updatedWorkflows);
 
     persist(
       targetOrg,
@@ -403,9 +431,9 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       updatedUsers,
       leads,
       folders,
-      templates,
+      updatedTemplates,
       campaigns,
-      workflows,
+      updatedWorkflows,
       responses,
       smtpSettings,
       whatsAppSettings
@@ -481,8 +509,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     if (!organization) throw new Error("No active agency");
     const newMgr: User = {
       id: `usr-mgr-${Date.now()}`,
-      name: data.name,
-      email: data.email,
+      name: data.name.trim(),
+      email: data.email.trim().toLowerCase(),
       role: "MANAGER",
       agencyId: organization.id,
       isActive: true,
@@ -499,8 +527,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     const mgr = users.find((u) => u.id === data.managerId);
     const newEmp: User = {
       id: `usr-emp-${Date.now()}`,
-      name: data.name,
-      email: data.email,
+      name: data.name.trim(),
+      email: data.email.trim().toLowerCase(),
       role: "EMPLOYEE",
       agencyId: organization.id,
       managerId: data.managerId,
@@ -606,7 +634,6 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     const updatedLeads = [newLead, ...leads];
     setLeads(updatedLeads);
 
-    // Update folder counts
     if (newLead.folderId) {
       setFolders((prev) =>
         prev.map((f) =>
@@ -621,7 +648,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     return newLead;
   };
 
-  // Bulk Import Leads (Excel/CSV or OCR Scan)
+  // Bulk Import Leads
   const bulkImportLeads = (
     leadRows: Array<{ name: string; company?: string; email?: string; phone?: string; whatsApp?: string; source?: string }>,
     folderName: string
@@ -772,7 +799,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     return newFolder;
   };
 
-  // Templates
+  // Templates CRUD
   const createTemplate = (data: Omit<MarketingTemplate, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName">): MarketingTemplate => {
     if (!organization || !currentUser) throw new Error("Unauthenticated");
     const newTpl: MarketingTemplate = {
@@ -792,13 +819,19 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     return newTpl;
   };
 
+  const updateTemplate = (id: string, data: Partial<MarketingTemplate>) => {
+    const updated = templates.map((t) => (t.id === id ? { ...t, ...data } : t));
+    setTemplates(updated);
+    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+  };
+
   const deleteTemplate = (id: string) => {
     const updated = templates.filter((t) => t.id !== id);
     setTemplates(updated);
     persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
   };
 
-  // Campaigns
+  // Campaigns CRUD
   const createCampaign = (data: Omit<Campaign, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "sentCount" | "deliveredCount" | "openedCount" | "repliedCount" | "positiveResponses" | "negativeResponses" | "failedCount">): Campaign => {
     if (!organization || !currentUser) throw new Error("Unauthenticated");
     const targetFolder = folders.find((f) => f.id === data.folderId);
@@ -840,7 +873,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     persist(organization, currentUser, users, leads, folders, templates, updated, workflows, responses, smtpSettings, whatsAppSettings);
   };
 
-  // Workflows
+  // Workflows CRUD (Manageable by Admin, Manager, and Employee)
   const createWorkflow = (data: Omit<Workflow, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "enrolledLeadsCount">): Workflow => {
     if (!organization || !currentUser) throw new Error("Unauthenticated");
     const newWf: Workflow = {
@@ -863,6 +896,18 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     setWorkflows(updated);
     persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, responses, smtpSettings, whatsAppSettings);
     return newWf;
+  };
+
+  const updateWorkflow = (id: string, data: Partial<Workflow>) => {
+    const updated = workflows.map((w) => (w.id === id ? { ...w, ...data } : w));
+    setWorkflows(updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, responses, smtpSettings, whatsAppSettings);
+  };
+
+  const deleteWorkflow = (id: string) => {
+    const updated = workflows.filter((w) => w.id !== id);
+    setWorkflows(updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, responses, smtpSettings, whatsAppSettings);
   };
 
   const toggleWorkflowActive = (workflowId: string) => {
@@ -889,7 +934,6 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
 
     setResponses((prev) => [newResp, ...prev]);
 
-    // Apply PDF business logic on response
     if (sentiment === "Positive") {
       updateLeadStatus(leadId, "Interested");
       addLeadActivity(leadId, {
@@ -959,10 +1003,13 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         addLeadToWorkflow,
         createFolder,
         createTemplate,
+        updateTemplate,
         deleteTemplate,
         createCampaign,
         updateCampaignStatus,
         createWorkflow,
+        updateWorkflow,
+        deleteWorkflow,
         toggleWorkflowActive,
         recordResponse,
         markResponseHandled,

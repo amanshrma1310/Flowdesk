@@ -12,6 +12,7 @@ import {
   AlertCircle,
   ArrowDown,
   Trash2,
+  Edit,
   Play,
   Pause,
   Sparkles,
@@ -23,12 +24,23 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useFlowDesk } from "@/lib/store";
-import { WorkflowStep, TemplateChannel } from "@/lib/types";
+import { Workflow, WorkflowStep, TemplateChannel } from "@/lib/types";
 
 export default function WorkflowsPage() {
-  const { workflows, templates, createWorkflow, toggleWorkflowActive } = useFlowDesk();
+  const {
+    workflows,
+    templates,
+    createWorkflow,
+    updateWorkflow,
+    deleteWorkflow,
+    toggleWorkflowActive,
+  } = useFlowDesk();
 
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  // Modal State
+  const [isOpen, setIsOpen] = useState(false);
+  const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null);
+
+  // Form Fields
   const [workflowName, setWorkflowName] = useState("");
   const [description, setDescription] = useState("");
   const [steps, setSteps] = useState<WorkflowStep[]>([
@@ -39,7 +51,7 @@ export default function WorkflowsPage() {
       channel: "Email",
       templateId: templates[0]?.id || "",
       templateName: templates[0]?.name || "Template",
-      actionTitle: "Day 1: Initial Email Outreach",
+      actionTitle: "Initial Email Outreach",
     },
     {
       id: "step-2",
@@ -48,9 +60,54 @@ export default function WorkflowsPage() {
       channel: "WhatsApp",
       templateId: templates.find((t) => t.channel === "WhatsApp")?.id || templates[0]?.id || "",
       templateName: templates.find((t) => t.channel === "WhatsApp")?.name || "Template",
-      actionTitle: "Day 3: Follow-up WhatsApp Message",
+      actionTitle: "Follow-up WhatsApp Message",
     },
   ]);
+
+  const openCreateModal = () => {
+    setEditingWorkflowId(null);
+    setWorkflowName("");
+    setDescription("");
+    setSteps([
+      {
+        id: "step-1",
+        stepNumber: 1,
+        dayDelay: 0,
+        channel: "Email",
+        templateId: templates[0]?.id || "",
+        templateName: templates[0]?.name || "Template",
+        actionTitle: "Initial Email Outreach",
+      },
+      {
+        id: "step-2",
+        stepNumber: 2,
+        dayDelay: 2,
+        channel: "WhatsApp",
+        templateId: templates.find((t) => t.channel === "WhatsApp")?.id || templates[0]?.id || "",
+        templateName: templates.find((t) => t.channel === "WhatsApp")?.name || "Template",
+        actionTitle: "Follow-up WhatsApp Message",
+      },
+    ]);
+    setIsOpen(true);
+  };
+
+  const openEditModal = (wf: Workflow) => {
+    setEditingWorkflowId(wf.id);
+    setWorkflowName(wf.name);
+    setDescription(wf.description || "");
+    setSteps(wf.steps && wf.steps.length > 0 ? wf.steps : [
+      {
+        id: "step-1",
+        stepNumber: 1,
+        dayDelay: 0,
+        channel: "Email",
+        templateId: templates[0]?.id || "",
+        templateName: templates[0]?.name || "Template",
+        actionTitle: "Initial Email Outreach",
+      },
+    ]);
+    setIsOpen(true);
+  };
 
   const addStep = () => {
     const nextNum = steps.length + 1;
@@ -61,7 +118,7 @@ export default function WorkflowsPage() {
       channel: "WhatsApp",
       templateId: templates[0]?.id || "",
       templateName: templates[0]?.name || "Template",
-      actionTitle: `Day ${nextNum * 2 + 1}: Follow-up Step ${nextNum}`,
+      actionTitle: `Day ${nextNum * 2}: Follow-up Step ${nextNum}`,
     };
     setSteps([...steps, newStep]);
   };
@@ -70,24 +127,30 @@ export default function WorkflowsPage() {
     setSteps(steps.filter((_, idx) => idx !== index));
   };
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!workflowName.trim() || steps.length === 0) return;
 
-    createWorkflow({
-      name: workflowName,
-      description,
-      trigger: "Lead Added",
-      steps,
-      onPositiveResponse: "Status = Interested & Stop automated messages & Notify Employee",
-      onNegativeResponse: "Status = Not Interested & Stop Campaign",
-      onNoResponse: "Send Next Follow-up",
-      isActive: true,
-    });
+    if (editingWorkflowId) {
+      updateWorkflow(editingWorkflowId, {
+        name: workflowName,
+        description,
+        steps,
+      });
+    } else {
+      createWorkflow({
+        name: workflowName,
+        description,
+        trigger: "Lead Added",
+        steps,
+        onPositiveResponse: "Status = Interested & Stop automated messages & Notify Employee",
+        onNegativeResponse: "Status = Not Interested & Stop Campaign",
+        onNoResponse: "Send Next Follow-up",
+        isActive: true,
+      });
+    }
 
-    setIsCreateOpen(false);
-    setWorkflowName("");
-    setDescription("");
+    setIsOpen(false);
   };
 
   return (
@@ -100,17 +163,17 @@ export default function WorkflowsPage() {
               Workflows & Follow-up Sequences
             </h1>
             <Badge variant="purple" className="text-xs font-bold">
-              {workflows.length} Sequences
+              {workflows.length} Active Sequences
             </Badge>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Automated multi-day drip campaigns with response-based branching (PDF Pages 10, 11, 12, 16).
+            Manage multi-step automated drips with response branching — accessible by Admin, Managers, and Employees (PDF Pages 10, 11, 12, 16).
           </p>
         </div>
 
         <Button
           size="sm"
-          onClick={() => setIsCreateOpen(true)}
+          onClick={openCreateModal}
           className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold gap-1.5 shadow-xs"
         >
           <Plus className="h-4 w-4" />
@@ -144,12 +207,28 @@ export default function WorkflowsPage() {
                   <Button
                     size="sm"
                     variant="outline"
+                    onClick={() => openEditModal(wf)}
+                    className="text-xs h-8 gap-1"
+                  >
+                    <Edit className="h-3 w-3" />
+                    <span>Edit Sequence</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() => toggleWorkflowActive(wf.id)}
                     className="text-xs h-8 gap-1"
                   >
                     {wf.isActive ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
                     <span>{wf.isActive ? "Pause" : "Activate"}</span>
                   </Button>
+                  <button
+                    onClick={() => deleteWorkflow(wf.id)}
+                    title="Delete Workflow"
+                    className="p-1.5 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
             </CardHeader>
@@ -166,8 +245,8 @@ export default function WorkflowsPage() {
                     Trigger: {wf.trigger}
                   </div>
 
-                  {wf.steps.map((st, i) => (
-                    <React.Fragment key={st.id}>
+                  {wf.steps?.map((st, i) => (
+                    <React.Fragment key={st.id || i}>
                       <span className="text-slate-400 font-bold">➔</span>
                       <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-2xs space-y-0.5 dark:bg-slate-800 dark:border-slate-700">
                         <div className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
@@ -187,18 +266,18 @@ export default function WorkflowsPage() {
               <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-2 text-xs dark:bg-slate-800/60 dark:border-slate-700">
                 <p className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <GitBranch className="h-3.5 w-3.5 text-purple-600" />
-                  <span>Response-Based Rules (Automatic):</span>
+                  <span>Response-Based Automation Branching (Automatic):</span>
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
                   <div className="p-2 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300">
-                    <strong>Positive Reply:</strong> Status = Interested ➔ Stop auto messages ➔ Notify Employee.
+                    <strong>Positive Reply:</strong> Status = Interested ➔ Stop automated messages ➔ Notify Employee.
                   </div>
                   <div className="p-2 rounded-lg bg-rose-50 text-rose-900 border border-rose-200 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300">
                     <strong>Negative Reply:</strong> Status = Not Interested ➔ Stop Campaign ➔ Remove from sequence.
                   </div>
                   <div className="p-2 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 dark:bg-amber-950/40 dark:border-amber-900 dark:text-amber-300">
-                    <strong>No Reply:</strong> Wait configured delay ➔ Send next follow-up message automatically.
+                    <strong>No Reply:</strong> Wait delay ➔ Send next follow-up message automatically.
                   </div>
                 </div>
               </div>
@@ -207,17 +286,20 @@ export default function WorkflowsPage() {
         ))}
       </div>
 
-      {/* CREATE WORKFLOW MODAL */}
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+      {/* CREATE / EDIT WORKFLOW MODAL */}
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-lg bg-white dark:bg-slate-900 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-base font-bold">Create Follow-up Workflow</DialogTitle>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <Zap className="h-4 w-4 text-purple-600" />
+              <span>{editingWorkflowId ? "Edit Follow-up Workflow" : "Create Follow-up Workflow"}</span>
+            </DialogTitle>
             <DialogDescription className="text-xs">
               Configure multi-step outreach with delays and automatic response handlers.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleCreate} className="space-y-4 pt-2 text-xs">
+          <form onSubmit={handleSave} className="space-y-4 pt-2 text-xs">
             <div>
               <label className="font-semibold text-slate-700 block mb-1">Workflow Name *</label>
               <Input
@@ -249,7 +331,7 @@ export default function WorkflowsPage() {
 
               <div className="space-y-2">
                 {steps.map((step, idx) => (
-                  <div key={step.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
+                  <div key={step.id || idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
                     <div className="flex items-center justify-between font-bold">
                       <span>Step {idx + 1}</span>
                       {steps.length > 1 && (
@@ -278,14 +360,14 @@ export default function WorkflowsPage() {
                       </div>
 
                       <div>
-                        <label className="text-[10px] text-slate-500 block mb-0.5">Delay (Days)</label>
+                        <label className="text-[10px] text-slate-500 block mb-0.5">Delay (Days from Lead Added)</label>
                         <Input
                           type="number"
                           value={step.dayDelay}
                           onChange={(e) => {
                             const val = parseInt(e.target.value) || 0;
                             setSteps(
-                              steps.map((s, i) => (i === idx ? { ...s, dayDelay: val } : s))
+                              steps.map((s, i) => (i === idx ? { ...s, dayDelay: val, actionTitle: `Day ${val + 1}: Step ${idx + 1}` } : s))
                             );
                           }}
                           className="h-8 text-xs"
@@ -320,9 +402,9 @@ export default function WorkflowsPage() {
             </div>
 
             <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
               <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
-                Save & Activate Workflow
+                {editingWorkflowId ? "Save Changes" : "Create Workflow"}
               </Button>
             </DialogFooter>
           </form>
