@@ -1,8 +1,7 @@
 // FlowDesk AI — Prisma Schema
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "mysql"
 }
 
 generator client {

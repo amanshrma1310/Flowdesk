@@ -1,69 +1,62 @@
 import { NextResponse } from "next/server";
-
-// Server-side persistent agency store across all browser tabs & incognito windows
-interface StoredAgency {
-  id: string;
-  name: string;
-  joinCode: string;
-  createdAt: string;
-  adminId: string;
-  adminName: string;
-  adminEmail: string;
-  users: any[];
-  templates: any[];
-  workflows: any[];
-  leads: any[];
-  folders: any[];
-  campaigns: any[];
-  responses: any[];
-}
-
-// Global server memory so all incognito tabs can resolve join codes
-const globalAgencies = new Map<string, StoredAgency>();
+import { serverAgencies, getAgencyByJoinCode, saveServerAgency } from "@/lib/serverStore";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const joinCode = searchParams.get("joinCode");
 
   if (joinCode) {
-    const cleanQuery = joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-    for (const [code, agency] of globalAgencies.entries()) {
-      if (code === cleanQuery || agency.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() === cleanQuery) {
-        return NextResponse.json({ success: true, agency });
-      }
+    const agency = getAgencyByJoinCode(joinCode);
+    if (agency) {
+      return NextResponse.json({ success: true, agency });
     }
-    return NextResponse.json({ success: false, error: "Agency not found with this join code" }, { status: 404 });
+    return NextResponse.json({ success: false, error: "Agency not found with this Agency ID" }, { status: 404 });
   }
 
   return NextResponse.json({
     success: true,
-    agencies: Array.from(globalAgencies.values()),
+    agencies: Array.from(serverAgencies.values()),
   });
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { agency, action, user } = body;
+    const { agency, action, user, lead } = body;
 
     if (action === "CREATE_AGENCY" && agency) {
-      const cleanCode = agency.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-      globalAgencies.set(cleanCode, agency);
-      return NextResponse.json({ success: true, agency });
+      const existing = getAgencyByJoinCode(agency.joinCode);
+      const merged = {
+        ...existing,
+        ...agency,
+        users: agency.users || existing?.users || [],
+        leads: agency.leads && agency.leads.length > 0 ? agency.leads : (existing?.leads || []),
+        forms: agency.forms || existing?.forms || [],
+        workflows: agency.workflows || existing?.workflows || [],
+        folders: agency.folders || existing?.folders || [],
+        templates: agency.templates || existing?.templates || [],
+      };
+      saveServerAgency(merged);
+      return NextResponse.json({ success: true, agency: merged });
     }
 
-    if (action === "JOIN_AGENCY" && user && agency) {
-      const cleanCode = agency.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-      const existing = globalAgencies.get(cleanCode) || agency;
-      existing.users = [...(existing.users || []).filter((u: any) => u.email !== user.email), user];
-      globalAgencies.set(cleanCode, existing);
-      return NextResponse.json({ success: true, agency: existing, user });
+    if (action === "ADD_LEAD" && lead && agency) {
+      const existing = getAgencyByJoinCode(agency.joinCode) || agency;
+      const updatedLeads = [lead, ...(existing.leads || [])];
+      existing.leads = updatedLeads;
+      saveServerAgency(existing);
+      return NextResponse.json({ success: true, lead, agency: existing });
     }
 
     if (agency && agency.joinCode) {
-      const cleanCode = agency.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-      globalAgencies.set(cleanCode, agency);
-      return NextResponse.json({ success: true, agency });
+      const existing = getAgencyByJoinCode(agency.joinCode);
+      const merged = {
+        ...existing,
+        ...agency,
+        leads: agency.leads && agency.leads.length > 0 ? agency.leads : (existing?.leads || []),
+      };
+      saveServerAgency(merged);
+      return NextResponse.json({ success: true, agency: merged });
     }
 
     return NextResponse.json({ success: false, error: "Invalid payload" }, { status: 400 });

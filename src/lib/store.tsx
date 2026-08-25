@@ -176,6 +176,73 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     }
   }, []);
 
+  // Periodic Background Synchronization with Server API (Fetches new leads captured via web forms & webhooks)
+  useEffect(() => {
+    if (!organization?.joinCode) return;
+
+    const syncWithServer = async () => {
+      try {
+        const cleanCode = organization.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+        const res = await fetch(`/api/v1/agencies?joinCode=${cleanCode}`);
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (data.success && data.agency) {
+          const serverAgency = data.agency;
+
+          // Merge server leads with local leads
+          if (serverAgency.leads && Array.isArray(serverAgency.leads) && serverAgency.leads.length > 0) {
+            setLeads((prevLeads) => {
+              const existingIds = new Set(prevLeads.map((l) => l.id));
+              const newIncoming = serverAgency.leads.filter((l: Lead) => !existingIds.has(l.id));
+
+              if (newIncoming.length > 0) {
+                const combined = [...newIncoming, ...prevLeads];
+                localStorage.setItem("fd_marketing_leads", JSON.stringify(combined));
+                return combined;
+              }
+              return prevLeads;
+            });
+          }
+
+          // Merge forms submission count
+          if (serverAgency.forms && Array.isArray(serverAgency.forms)) {
+            setForms((prevForms) => {
+              let changed = false;
+              const updated = prevForms.map((pf) => {
+                const sf = serverAgency.forms.find((f: LeadForm) => f.id === pf.id);
+                if (sf && sf.submissionCount !== pf.submissionCount) {
+                  changed = true;
+                  return { ...pf, submissionCount: sf.submissionCount };
+                }
+                return pf;
+              });
+              if (changed) {
+                localStorage.setItem("fd_marketing_forms", JSON.stringify(updated));
+                return updated;
+              }
+              return prevForms;
+            });
+          }
+        }
+      } catch (err) {
+        // Silently ignore background polling errors
+      }
+    };
+
+    // Initial sync
+    syncWithServer();
+
+    // Poll every 3.5 seconds
+    const interval = setInterval(syncWithServer, 3500);
+    window.addEventListener("focus", syncWithServer);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", syncWithServer);
+    };
+  }, [organization?.joinCode]);
+
   const persist = (
     org: Organization | null,
     u: User | null,
@@ -1228,6 +1295,13 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
 
     setLeads(updatedLeads);
     setForms(updatedForms);
+
+    // Sync directly with server endpoint
+    fetch(`/api/v1/forms/${formId}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...submission, redirectUrl: targetForm.redirectUrl }),
+    }).catch(() => {});
 
     persist(
       organization,
