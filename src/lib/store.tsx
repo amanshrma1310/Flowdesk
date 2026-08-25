@@ -87,9 +87,11 @@ interface FlowDeskStoreContextType {
   recordResponse: (leadId: string, message: string, sentiment: "Positive" | "Negative" | "Question", channel: "WhatsApp" | "Email") => void;
   markResponseHandled: (responseId: string) => void;
 
-  // Settings
+  // Settings & Live Delivery Gateways
   saveSMTPSettings: (settings: Partial<SMTPSettings>) => void;
   saveWhatsAppSettings: (settings: Partial<WhatsAppAPISettings>) => void;
+  sendRealEmail: (data: { to: string; subject: string; text: string; html?: string; customSmtp?: SMTPSettings }) => Promise<{ success: boolean; message: string; error?: string }>;
+  sendRealWhatsApp: (data: { to: string; message: string; customSettings?: WhatsAppAPISettings }) => Promise<{ success: boolean; message: string; error?: string }>;
 }
 
 const FlowDeskStoreContext = createContext<FlowDeskStoreContextType | null>(null);
@@ -617,6 +619,18 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     setUsers(updatedUsers);
     setSentEmailLogs(updatedLogs);
 
+    // Dispatch real live email in background via SMTP
+    fetch("/api/v1/email/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        smtpSettings,
+        to: cleanEmail,
+        subject: emailLog.subject,
+        text: emailLog.body,
+      }),
+    }).catch((err) => console.warn("Background onboarding email failed:", err));
+
     persist(
       organization,
       currentUser,
@@ -686,6 +700,18 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
 
     setUsers(updatedUsers);
     setSentEmailLogs(updatedLogs);
+
+    // Dispatch real live email in background via SMTP
+    fetch("/api/v1/email/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        smtpSettings,
+        to: cleanEmail,
+        subject: emailLog.subject,
+        text: emailLog.body,
+      }),
+    }).catch((err) => console.warn("Background onboarding email failed:", err));
 
     persist(
       organization,
@@ -1280,6 +1306,64 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, updated);
   };
 
+  const sendRealEmail = async (data: {
+    to: string;
+    subject: string;
+    text: string;
+    html?: string;
+    customSmtp?: SMTPSettings;
+  }): Promise<{ success: boolean; message: string; error?: string }> => {
+    try {
+      const activeSmtp = data.customSmtp || smtpSettings;
+      const res = await fetch("/api/v1/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          smtpSettings: activeSmtp,
+          to: data.to,
+          subject: data.subject,
+          text: data.text,
+          html: data.html,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        return { success: false, message: json.error || "Failed to send email", error: json.error };
+      }
+      return { success: true, message: json.message || "Email delivered successfully!" };
+    } catch (err: any) {
+      return { success: false, message: err.message || "Network error sending email", error: String(err) };
+    }
+  };
+
+  const sendRealWhatsApp = async (data: {
+    to: string;
+    message: string;
+    customSettings?: WhatsAppAPISettings;
+  }): Promise<{ success: boolean; message: string; error?: string }> => {
+    try {
+      const activeWa = data.customSettings || whatsAppSettings;
+      const res = await fetch("/api/v1/whatsapp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          whatsappSettings: activeWa,
+          to: data.to,
+          message: data.message,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        return { success: false, message: json.error || "Failed to send WhatsApp message", error: json.error };
+      }
+      return { success: true, message: json.message || "WhatsApp message delivered successfully!" };
+    } catch (err: any) {
+      return { success: false, message: err.message || "Network error sending WhatsApp message", error: String(err) };
+    }
+  };
+
   return (
     <FlowDeskStoreContext.Provider
       value={{
@@ -1332,6 +1416,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         markResponseHandled,
         saveSMTPSettings,
         saveWhatsAppSettings,
+        sendRealEmail,
+        sendRealWhatsApp,
       }}
     >
       {children}
