@@ -71,6 +71,7 @@ export interface Lead {
   source: string;
   status: LeadStatus;
   notes?: string;
+  customData?: Record<string, string>;
   tags: string[];
   folderId?: string;
   folderName?: string;
@@ -169,13 +170,16 @@ export interface Workflow {
   createdAt: string;
 }
 
+export type FieldInputType = "text" | "email" | "tel" | "number" | "textarea" | "select";
+
 export interface LeadFormField {
   id: string;
   label: string;
-  name: "name" | "email" | "phone" | "company" | "notes";
-  type: "text" | "email" | "tel" | "textarea";
+  name: string;
+  type: FieldInputType;
   required: boolean;
   placeholder?: string;
+  options?: string[]; // For select dropdown options
 }
 
 export interface LeadForm {
@@ -185,6 +189,7 @@ export interface LeadForm {
   description?: string;
   submitButtonText: string;
   successMessage: string;
+  redirectUrl?: string; // Welcome / Thank You Page URL
   folderId?: string;
   folderName?: string;
   assignedEmployeeId?: string;

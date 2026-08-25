@@ -19,6 +19,10 @@ import {
   Globe,
   Share2,
   CheckCircle2,
+  Layers,
+  ArrowUp,
+  ArrowDown,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -26,9 +30,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useFlowDesk } from "@/lib/store";
-import { LeadForm, LeadFormField } from "@/lib/types";
+import { LeadForm, LeadFormField, FieldInputType } from "@/lib/types";
 
-const DEFAULT_FIELDS: LeadFormField[] = [
+const STARTER_FIELDS: LeadFormField[] = [
   { id: "f-name", label: "Full Name", name: "name", type: "text", required: true, placeholder: "e.g. John Doe" },
   { id: "f-phone", label: "WhatsApp / Phone Number", name: "phone", type: "tel", required: true, placeholder: "e.g. +91 98765 43210" },
   { id: "f-email", label: "Work Email", name: "email", type: "email", required: true, placeholder: "e.g. john@company.com" },
@@ -45,21 +49,31 @@ export default function FormsPage() {
     createForm,
     updateForm,
     deleteForm,
-    organization,
   } = useFlowDesk();
 
-  // Create / Edit Modal
+  // Create / Edit Modal State
   const [isOpen, setIsOpen] = useState(false);
   const [editingFormId, setEditingFormId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [submitButtonText, setSubmitButtonText] = useState("Get Free Consultation");
   const [successMessage, setSuccessMessage] = useState("Thank you! Our marketing specialist will contact you shortly.");
+  const [redirectUrl, setRedirectUrl] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState("");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
   const [selectedRepId, setSelectedRepId] = useState("");
 
-  // Embed Modal
+  // Dynamic Fields State
+  const [fields, setFields] = useState<LeadFormField[]>(STARTER_FIELDS);
+
+  // New field creator inside modal
+  const [newFieldLabel, setNewFieldLabel] = useState("");
+  const [newFieldType, setNewFieldType] = useState<FieldInputType>("text");
+  const [newFieldPlaceholder, setNewFieldPlaceholder] = useState("");
+  const [newFieldRequired, setNewFieldRequired] = useState(false);
+  const [newFieldOptions, setNewFieldOptions] = useState("");
+
+  // Embed Modal State
   const [embedModalOpen, setEmbedModalOpen] = useState(false);
   const [activeEmbedForm, setActiveEmbedForm] = useState<LeadForm | null>(null);
   const [activeTab, setActiveTab] = useState<"IFRAME" | "HTML" | "LINK">("IFRAME");
@@ -71,9 +85,11 @@ export default function FormsPage() {
     setDescription("");
     setSubmitButtonText("Get Free Consultation");
     setSuccessMessage("Thank you! Our marketing specialist will contact you shortly.");
+    setRedirectUrl("");
     setSelectedFolderId(folders[0]?.id || "");
     setSelectedWorkflowId(workflows[0]?.id || "");
     setSelectedRepId(users[0]?.id || "");
+    setFields([...STARTER_FIELDS]);
     setIsOpen(true);
   };
 
@@ -83,10 +99,51 @@ export default function FormsPage() {
     setDescription(form.description || "");
     setSubmitButtonText(form.submitButtonText);
     setSuccessMessage(form.successMessage);
+    setRedirectUrl(form.redirectUrl || "");
     setSelectedFolderId(form.folderId || "");
     setSelectedWorkflowId(form.workflowId || "");
     setSelectedRepId(form.assignedEmployeeId || "");
+    setFields(form.fields && form.fields.length > 0 ? form.fields : [...STARTER_FIELDS]);
     setIsOpen(true);
+  };
+
+  const addCustomField = () => {
+    if (!newFieldLabel.trim()) return;
+
+    const fieldKey = newFieldLabel.toLowerCase().replace(/[^a-zA-Z0-9]/g, "_");
+    const optionsArray = newFieldType === "select"
+      ? newFieldOptions.split(",").map((o) => o.trim()).filter(Boolean)
+      : undefined;
+
+    const newField: LeadFormField = {
+      id: `f-${Date.now()}`,
+      label: newFieldLabel.trim(),
+      name: fieldKey,
+      type: newFieldType,
+      required: newFieldRequired,
+      placeholder: newFieldPlaceholder.trim() || `Enter ${newFieldLabel.trim()}`,
+      options: optionsArray,
+    };
+
+    setFields([...fields, newField]);
+    setNewFieldLabel("");
+    setNewFieldPlaceholder("");
+    setNewFieldOptions("");
+    setNewFieldRequired(false);
+  };
+
+  const removeField = (index: number) => {
+    setFields(fields.filter((_, idx) => idx !== index));
+  };
+
+  const moveField = (index: number, direction: "up" | "down") => {
+    const targetIdx = direction === "up" ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= fields.length) return;
+
+    const newArr = [...fields];
+    const [moved] = newArr.splice(index, 1);
+    newArr.splice(targetIdx, 0, moved);
+    setFields(newArr);
   };
 
   const openEmbedModal = (form: LeadForm) => {
@@ -96,7 +153,7 @@ export default function FormsPage() {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || fields.length === 0) return;
 
     const targetFolder = folders.find((f) => f.id === selectedFolderId);
     const targetWf = workflows.find((w) => w.id === selectedWorkflowId);
@@ -108,12 +165,14 @@ export default function FormsPage() {
         description,
         submitButtonText,
         successMessage,
+        redirectUrl: redirectUrl.trim() || undefined,
         folderId: selectedFolderId || undefined,
         folderName: targetFolder?.name,
         workflowId: selectedWorkflowId || undefined,
         workflowName: targetWf?.name,
         assignedEmployeeId: selectedRepId || undefined,
         assignedEmployeeName: targetRep?.name,
+        fields,
       });
     } else {
       createForm({
@@ -121,13 +180,14 @@ export default function FormsPage() {
         description,
         submitButtonText,
         successMessage,
+        redirectUrl: redirectUrl.trim() || undefined,
         folderId: selectedFolderId || undefined,
         folderName: targetFolder?.name,
         workflowId: selectedWorkflowId || undefined,
         workflowName: targetWf?.name,
         assignedEmployeeId: selectedRepId || undefined,
         assignedEmployeeName: targetRep?.name,
-        fields: DEFAULT_FIELDS,
+        fields,
         isActive: true,
       });
     }
@@ -138,11 +198,24 @@ export default function FormsPage() {
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
 
   const getIframeCode = (formId: string) => {
-    return `<iframe\n  src="${baseUrl}/forms/public/${formId}"\n  width="100%"\n  height="580"\n  frameborder="0"\n  style="border:none; border-radius:16px; max-width:500px;"\n></iframe>`;
+    return `<iframe\n  src="${baseUrl}/forms/public/${formId}"\n  width="100%"\n  height="620"\n  frameborder="0"\n  style="border:none; border-radius:16px; max-width:520px;"\n></iframe>`;
   };
 
-  const getHtmlFormCode = (formId: string) => {
-    return `<!-- FlowDesk AI Lead Capture Form -->\n<form action="${baseUrl}/api/v1/forms/${formId}/submit" method="POST">\n  <label>Full Name *</label>\n  <input type="text" name="name" required placeholder="Your Name" />\n\n  <label>WhatsApp / Phone *</label>\n  <input type="tel" name="phone" required placeholder="+91 98765 43210" />\n\n  <label>Work Email</label>\n  <input type="email" name="email" placeholder="name@company.com" />\n\n  <label>Company</label>\n  <input type="text" name="company" placeholder="Company Name" />\n\n  <button type="submit">Submit Inquiry</button>\n</form>`;
+  const getHtmlFormCode = (form: LeadForm) => {
+    const fieldsHtml = form.fields
+      .map((f) => {
+        if (f.type === "textarea") {
+          return `  <label>${f.label}${f.required ? " *" : ""}</label>\n  <textarea name="${f.name}" ${f.required ? "required" : ""} placeholder="${f.placeholder || ""}"></textarea>`;
+        }
+        if (f.type === "select" && f.options) {
+          const optHtml = f.options.map((o) => `    <option value="${o}">${o}</option>`).join("\n");
+          return `  <label>${f.label}${f.required ? " *" : ""}</label>\n  <select name="${f.name}" ${f.required ? "required" : ""}>\n${optHtml}\n  </select>`;
+        }
+        return `  <label>${f.label}${f.required ? " *" : ""}</label>\n  <input type="${f.type}" name="${f.name}" ${f.required ? "required" : ""} placeholder="${f.placeholder || ""}" />`;
+      })
+      .join("\n\n");
+
+    return `<!-- FlowDesk AI Lead Capture Form -->\n<form action="${baseUrl}/api/v1/forms/${form.id}/submit" method="POST">\n${fieldsHtml}\n\n  <button type="submit">${form.submitButtonText || "Submit"}</button>\n</form>`;
   };
 
   const copyToClipboard = (text: string) => {
@@ -165,7 +238,7 @@ export default function FormsPage() {
             </Badge>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Create website inquiry forms, copy embed codes, and route incoming website leads directly into automated follow-ups.
+            Build customized website forms with custom fields and welcome redirect URLs. Incoming leads automatically start your marketing workflows.
           </p>
         </div>
 
@@ -191,7 +264,9 @@ export default function FormsPage() {
                   </div>
                   <div>
                     <CardTitle className="text-sm font-bold">{form.title}</CardTitle>
-                    <p className="text-[11px] text-slate-400 font-mono">ID: {form.id}</p>
+                    <p className="text-[11px] text-slate-400 font-mono">
+                      {form.fields?.length || 0} Custom Fields • ID: {form.id}
+                    </p>
                   </div>
                 </div>
 
@@ -215,6 +290,13 @@ export default function FormsPage() {
 
               {form.description && (
                 <p className="text-xs text-slate-500 line-clamp-2 pt-1">{form.description}</p>
+              )}
+
+              {form.redirectUrl && (
+                <div className="flex items-center gap-1.5 pt-1 text-[11px] text-indigo-600 font-medium">
+                  <Link2 className="h-3 w-3 shrink-0" />
+                  <span className="truncate">Welcome Redirect: {form.redirectUrl}</span>
+                </div>
               )}
             </CardHeader>
 
@@ -274,39 +356,211 @@ export default function FormsPage() {
         ))}
       </div>
 
-      {/* 1. CREATE / EDIT FORM MODAL */}
+      {/* 1. CREATE / EDIT FORM MODAL WITH DYNAMIC FIELDS BUILDER */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-lg bg-white dark:bg-slate-900 max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl bg-white dark:bg-slate-900 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base font-bold flex items-center gap-2">
               <FileText className="h-4 w-4 text-indigo-600" />
-              <span>{editingFormId ? "Edit Lead Form" : "Create Lead Capture Form"}</span>
+              <span>{editingFormId ? "Edit Lead Form & Fields" : "Create Lead Capture Form"}</span>
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Configure form details, destination folder, and instant follow-up automation.
+              Add customized fields, assign destinations, and set Welcome/Thank You redirect URL.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSave} className="space-y-3.5 pt-2 text-xs">
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1">Form Title *</label>
-              <Input
-                required
-                placeholder="e.g. Website Contact & Consultation Form"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
+          <form onSubmit={handleSave} className="space-y-4 pt-2 text-xs">
+            {/* General Settings */}
+            <div className="space-y-3">
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Form Title *</label>
+                <Input
+                  required
+                  placeholder="e.g. Website Contact & Free Consultation Form"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Description / Subtitle</label>
+                <Input
+                  placeholder="e.g. Fill this out to request a 1-on-1 strategy session with our team."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+
+              {/* Welcome Page URL Redirect (Requested Feature) */}
+              <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-1.5 dark:bg-slate-800 dark:border-slate-700">
+                <label className="font-bold text-indigo-950 block dark:text-indigo-200 flex items-center gap-1.5">
+                  <Link2 className="h-3.5 w-3.5 text-indigo-600" />
+                  <span>Welcome / Thank You Page URL (Redirect on Submit)</span>
+                </label>
+                <Input
+                  type="url"
+                  placeholder="e.g. https://yourwebsite.com/welcome or https://youragency.com/thank-you"
+                  value={redirectUrl}
+                  onChange={(e) => setRedirectUrl(e.target.value)}
+                  className="bg-white dark:bg-slate-950"
+                />
+                <p className="text-[10px] text-slate-500">
+                  Optional: When visitor submits the form, they will be automatically redirected to this URL. If empty, the success confirmation message is shown.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1">Description</label>
-              <Input
-                placeholder="e.g. Fill this out to request a 1-on-1 strategy session"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
+            {/* DYNAMIC FORM FIELDS BUILDER (Requested Feature) */}
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3 dark:bg-slate-800/60 dark:border-slate-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-slate-900 text-xs dark:text-white flex items-center gap-1.5">
+                    <Layers className="h-4 w-4 text-indigo-600" />
+                    <span>Form Fields ({fields.length})</span>
+                  </h4>
+                  <p className="text-[10px] text-slate-500">
+                    Add, customize, and reorder fields according to your business needs.
+                  </p>
+                </div>
+              </div>
+
+              {/* Active Fields List */}
+              <div className="space-y-2">
+                {fields.map((field, idx) => (
+                  <div
+                    key={field.id || idx}
+                    className="p-2.5 bg-white rounded-lg border border-slate-200 flex items-center justify-between gap-2 shadow-2xs dark:bg-slate-900 dark:border-slate-800"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={() => moveField(idx, "up")}
+                          className="text-slate-400 hover:text-indigo-600 disabled:opacity-30"
+                        >
+                          <ArrowUp className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === fields.length - 1}
+                          onClick={() => moveField(idx, "down")}
+                          className="text-slate-400 hover:text-indigo-600 disabled:opacity-30"
+                        >
+                          <ArrowDown className="h-3 w-3" />
+                        </button>
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                            {field.label}
+                          </span>
+                          {field.required && (
+                            <span className="text-[10px] text-rose-500 font-bold">*Required</span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Type: {field.type} {field.options ? `(${field.options.length} options)` : ""} • Key: {field.name}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => removeField(idx)}
+                      className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                      title="Remove field"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add New Custom Field Panel */}
+              <div className="p-3 bg-white rounded-lg border border-dashed border-indigo-300 space-y-2 dark:bg-slate-900 dark:border-indigo-900">
+                <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 block">
+                  + Add Custom Field:
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-0.5">Field Label *</label>
+                    <Input
+                      placeholder="e.g. Budget / Property Type"
+                      value={newFieldLabel}
+                      onChange={(e) => setNewFieldLabel(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-0.5">Field Type</label>
+                    <select
+                      value={newFieldType}
+                      onChange={(e) => setNewFieldType(e.target.value as FieldInputType)}
+                      className="w-full h-8 rounded border border-slate-200 text-xs px-2 bg-white dark:bg-slate-950 dark:border-slate-800"
+                    >
+                      <option value="text">Single Line Text</option>
+                      <option value="tel">WhatsApp / Phone Number</option>
+                      <option value="email">Email Address</option>
+                      <option value="number">Numeric Value / Amount</option>
+                      <option value="textarea">Multi-line Paragraph</option>
+                      <option value="select">Dropdown Select Menu</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-0.5">Placeholder</label>
+                    <Input
+                      placeholder="e.g. Enter your budget"
+                      value={newFieldPlaceholder}
+                      onChange={(e) => setNewFieldPlaceholder(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                </div>
+
+                {newFieldType === "select" && (
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-0.5">
+                      Dropdown Options (comma separated)
+                    </label>
+                    <Input
+                      placeholder="e.g. Under $1k, $1k - $5k, $5k - $20k, $20k+"
+                      value={newFieldOptions}
+                      onChange={(e) => setNewFieldOptions(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-1">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={newFieldRequired}
+                      onChange={(e) => setNewFieldRequired(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Make this field required</span>
+                  </label>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={addCustomField}
+                    className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold gap-1"
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span>Add to Form</span>
+                  </Button>
+                </div>
+              </div>
             </div>
 
+            {/* Folder & Automation Settings */}
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">Target Lead Folder</label>
@@ -351,22 +605,24 @@ export default function FormsPage() {
               </select>
             </div>
 
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1">Submit Button Text</label>
-              <Input
-                placeholder="e.g. Get Free Quote"
-                value={submitButtonText}
-                onChange={(e) => setSubmitButtonText(e.target.value)}
-              />
-            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Submit Button Text</label>
+                <Input
+                  placeholder="e.g. Get Free Quote"
+                  value={submitButtonText}
+                  onChange={(e) => setSubmitButtonText(e.target.value)}
+                />
+              </div>
 
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1">Success Confirmation Message</label>
-              <Input
-                placeholder="e.g. Thank you! We will reach out on WhatsApp within 5 minutes."
-                value={successMessage}
-                onChange={(e) => setSuccessMessage(e.target.value)}
-              />
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Success Message (if no redirect)</label>
+                <Input
+                  placeholder="e.g. Thank you! We will reach out on WhatsApp within 5 minutes."
+                  value={successMessage}
+                  onChange={(e) => setSuccessMessage(e.target.value)}
+                />
+              </div>
             </div>
 
             <DialogFooter className="pt-2">
@@ -434,7 +690,7 @@ export default function FormsPage() {
                     activeTab === "IFRAME"
                       ? getIframeCode(activeEmbedForm.id)
                       : activeTab === "HTML"
-                      ? getHtmlFormCode(activeEmbedForm.id)
+                      ? getHtmlFormCode(activeEmbedForm)
                       : `${baseUrl}/forms/public/${activeEmbedForm.id}`
                   }
                   className="w-full p-3 bg-slate-950 text-indigo-300 font-mono text-xs rounded-xl border border-slate-800 focus:outline-none"
@@ -447,7 +703,7 @@ export default function FormsPage() {
                       activeTab === "IFRAME"
                         ? getIframeCode(activeEmbedForm.id)
                         : activeTab === "HTML"
-                        ? getHtmlFormCode(activeEmbedForm.id)
+                        ? getHtmlFormCode(activeEmbedForm)
                         : `${baseUrl}/forms/public/${activeEmbedForm.id}`
                     )
                   }
@@ -465,6 +721,11 @@ export default function FormsPage() {
                 </div>
                 <p>
                   Any visitor who submits this form on your website will immediately appear in your <strong>{activeEmbedForm.folderName || "Leads"}</strong> list and automatically trigger <strong>{activeEmbedForm.workflowName || "Initial Follow-up Sequence"}</strong>!
+                  {activeEmbedForm.redirectUrl && (
+                    <span className="block mt-1 font-semibold text-indigo-700 dark:text-indigo-300">
+                      ➔ Redirects to: {activeEmbedForm.redirectUrl}
+                    </span>
+                  )}
                 </p>
               </div>
 

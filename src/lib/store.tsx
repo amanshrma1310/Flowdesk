@@ -77,7 +77,7 @@ interface FlowDeskStoreContextType {
   createForm: (data: Omit<LeadForm, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "submissionCount">) => LeadForm;
   updateForm: (id: string, data: Partial<LeadForm>) => void;
   deleteForm: (id: string) => void;
-  submitLeadForm: (formId: string, submission: { name: string; email?: string; phone?: string; company?: string; notes?: string }) => Promise<{ success: boolean; leadId?: string; message?: string }>;
+  submitLeadForm: (formId: string, submission: Record<string, string>) => Promise<{ success: boolean; leadId?: string; message?: string; redirectUrl?: string }>;
 
   // Responses
   recordResponse: (leadId: string, message: string, sentiment: "Positive" | "Negative" | "Question", channel: "WhatsApp" | "Email") => void;
@@ -972,6 +972,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       description: data.description,
       submitButtonText: data.submitButtonText || "Submit Inquiry",
       successMessage: data.successMessage || "Thank you! We have received your request.",
+      redirectUrl: data.redirectUrl,
       folderId: data.folderId,
       folderName: targetFolder?.name || data.folderName,
       assignedEmployeeId: data.assignedEmployeeId,
@@ -1007,8 +1008,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   // Direct Submission Handler from Web Embeds / Public URL
   const submitLeadForm = async (
     formId: string,
-    submission: { name: string; email?: string; phone?: string; company?: string; notes?: string }
-  ): Promise<{ success: boolean; leadId?: string; message?: string }> => {
+    submission: Record<string, string>
+  ): Promise<{ success: boolean; leadId?: string; message?: string; redirectUrl?: string }> => {
     const targetForm = forms.find((f) => f.id === formId);
     if (!targetForm) {
       return { success: false, message: "Form not found or has been removed." };
@@ -1017,26 +1018,45 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     const assignedUser = users.find((u) => u.id === targetForm.assignedEmployeeId) || users[0];
     const newLeadId = `lead-${Date.now()}`;
 
+    // Extract core fields and bundle any extra custom fields
+    const leadName = submission.name || submission.fullName || submission["Full Name"] || "Web Prospect";
+    const leadPhone = submission.phone || submission.whatsApp || submission["Phone Number"] || submission["WhatsApp Number"] || "";
+    const leadEmail = submission.email || submission.workEmail || submission["Email Address"] || "";
+    const leadCompany = submission.company || submission.businessName || submission["Company Name"] || "";
+    const leadNotes = submission.notes || submission.message || submission.requirement || "";
+
+    const customFields: Record<string, string> = {};
+    for (const [key, val] of Object.entries(submission)) {
+      if (!["name", "fullName", "phone", "whatsApp", "email", "company", "notes", "message"].includes(key)) {
+        customFields[key] = val;
+      }
+    }
+
+    const customSummary = Object.entries(customFields)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ");
+
     const initialActivity: LeadActivity = {
       id: `act-${Date.now()}`,
       timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
       action: `Lead Captured via Web Form: ${targetForm.title}`,
       channel: "System",
-      details: `Submitted online. Notes: ${submission.notes || "None"}`,
+      details: `Submitted online.${leadNotes ? ` Notes: ${leadNotes}` : ""}${customSummary ? ` [Custom Fields: ${customSummary}]` : ""}`,
       actor: "Web Form Ingestion",
     };
 
     const newLead: Lead = {
       id: newLeadId,
       agencyId: targetForm.agencyId,
-      name: submission.name || "Web Inquirer",
-      company: submission.company || "",
-      email: submission.email || "",
-      phone: submission.phone || "",
-      whatsApp: submission.phone || "",
+      name: leadName,
+      company: leadCompany,
+      email: leadEmail,
+      phone: leadPhone,
+      whatsApp: leadPhone,
       source: `Web Form: ${targetForm.title}`,
       status: "New",
-      notes: submission.notes || "",
+      notes: leadNotes ? `${leadNotes}${customSummary ? `\n\nAdditional Details: ${customSummary}` : ""}` : customSummary,
+      customData: customFields,
       tags: ["Web Form", targetForm.title],
       folderId: targetForm.folderId,
       folderName: targetForm.folderName,
@@ -1090,6 +1110,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       success: true,
       leadId: newLeadId,
       message: targetForm.successMessage || "Thank you! Your submission was received.",
+      redirectUrl: targetForm.redirectUrl,
     };
   };
 

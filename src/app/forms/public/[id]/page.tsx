@@ -11,6 +11,8 @@ import {
   Mail,
   Phone,
   MessageSquare,
+  ChevronDown,
+  Hash,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,18 +26,12 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
 
   const [targetForm, setTargetForm] = useState<LeadForm | null>(null);
 
-  // Form Fields
-  const [formData, setFormData] = useState<Record<string, string>>({
-    name: "",
-    email: "",
-    phone: "",
-    company: "",
-    notes: "",
-  });
-
+  // Dynamic Form Values
+  const [formData, setFormData] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [responseMsg, setResponseMsg] = useState("");
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     const found = forms.find((f) => f.id === formId);
@@ -68,24 +64,30 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim() || (!formData.phone.trim() && !formData.email.trim())) {
-      alert("Please provide your name and phone number or email.");
+    if (!formData.name && !formData.phone && !formData.email) {
+      alert("Please provide at least your name and phone number or email.");
       return;
     }
 
     setIsSubmitting(true);
-    const res = await submitLeadForm(formId, {
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      company: formData.company,
-      notes: formData.notes,
-    });
-
+    const res = await submitLeadForm(formId, formData);
     setIsSubmitting(false);
+
     if (res.success) {
-      setSubmitted(true);
-      setResponseMsg(res.message || targetForm?.successMessage || "Thank you! Your submission was received.");
+      if (res.redirectUrl || targetForm?.redirectUrl) {
+        const targetUrl = res.redirectUrl || targetForm?.redirectUrl;
+        setRedirecting(true);
+        setSubmitted(true);
+        setResponseMsg(`Redirecting to welcome page...`);
+        setTimeout(() => {
+          if (targetUrl) {
+            window.location.href = targetUrl;
+          }
+        }, 1200);
+      } else {
+        setSubmitted(true);
+        setResponseMsg(res.message || targetForm?.successMessage || "Thank you! Your submission was received.");
+      }
     }
   };
 
@@ -108,13 +110,13 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
         <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl" />
       </div>
 
-      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6 animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6 animate-in fade-in zoom-in-95 duration-200">
         {/* Form Header */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 shadow-md shadow-indigo-600/30 text-white mb-1">
             <Sparkles className="h-5 w-5" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white">{targetForm.title}</h1>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">{targetForm.title}</h1>
           {targetForm.description && (
             <p className="text-xs text-slate-400 leading-relaxed">{targetForm.description}</p>
           )}
@@ -125,7 +127,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
             <div className="h-12 w-12 rounded-full bg-emerald-600/20 text-emerald-400 flex items-center justify-center mx-auto">
               <CheckCircle2 className="h-6 w-6" />
             </div>
-            <h3 className="font-bold text-sm text-white">Inquiry Submitted!</h3>
+            <h3 className="font-bold text-sm text-white">
+              {redirecting ? "Redirecting..." : "Inquiry Submitted!"}
+            </h3>
             <p className="text-xs text-emerald-300/90 leading-relaxed">{responseMsg}</p>
           </div>
         ) : (
@@ -147,12 +151,32 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
                     }
                     className="w-full p-2.5 rounded-lg border border-slate-800 bg-slate-950 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-sans"
                   />
+                ) : field.type === "select" && field.options ? (
+                  <div className="relative">
+                    <select
+                      required={field.required}
+                      value={formData[field.name] || ""}
+                      onChange={(e) =>
+                        setFormData({ ...formData, [field.name]: e.target.value })
+                      }
+                      className="w-full h-9 rounded-lg border border-slate-800 bg-slate-950 text-slate-100 px-3 text-xs focus:ring-2 focus:ring-indigo-500 appearance-none"
+                    >
+                      <option value="">-- Select {field.label} --</option>
+                      {field.options.map((opt, i) => (
+                        <option key={i} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="h-4 w-4 absolute right-3 top-2.5 text-slate-500 pointer-events-none" />
+                  </div>
                 ) : (
                   <div className="relative">
-                    {field.name === "name" && <User className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />}
-                    {field.name === "phone" && <Phone className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />}
-                    {field.name === "email" && <Mail className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />}
-                    {field.name === "company" && <Building2 className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />}
+                    {field.name.includes("name") && <User className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />}
+                    {field.name.includes("phone") && <Phone className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />}
+                    {field.name.includes("email") && <Mail className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />}
+                    {field.name.includes("company") && <Building2 className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />}
+                    {field.type === "number" && <Hash className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />}
 
                     <Input
                       required={field.required}
@@ -162,7 +186,15 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
                       onChange={(e) =>
                         setFormData({ ...formData, [field.name]: e.target.value })
                       }
-                      className="pl-9 bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus:border-indigo-500"
+                      className={`bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus:border-indigo-500 ${
+                        field.name.includes("name") ||
+                        field.name.includes("phone") ||
+                        field.name.includes("email") ||
+                        field.name.includes("company") ||
+                        field.type === "number"
+                          ? "pl-9"
+                          : "px-3"
+                      }`}
                     />
                   </div>
                 )}
