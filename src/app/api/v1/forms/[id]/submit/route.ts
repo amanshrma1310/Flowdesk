@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findFormAcrossAgencies, serverAgencies, saveServerAgency } from "@/lib/serverStore";
+import { findFormAcrossAgencies, saveServerAgency, addLeadToServer, getAllAgencies } from "@/lib/serverStore";
 
 function getPublicBaseUrl(req: NextRequest): string {
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
@@ -85,13 +85,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .map(([k, v]) => `${k}: ${v}`)
       .join(", ");
 
-    // Look up the agency and form in shared server memory
+    // Look up the agency and form in shared server store
     const formMatch = findFormAcrossAgencies(id);
     let targetAgency = formMatch?.agency;
     let targetForm = formMatch?.form;
 
-    if (!targetAgency && serverAgencies.size > 0) {
-      targetAgency = Array.from(serverAgencies.values())[0];
+    if (!targetAgency) {
+      const agencies = getAllAgencies();
+      if (agencies.length > 0) {
+        targetAgency = agencies[0];
+      }
     }
 
     const newLeadId = `lead-${Date.now()}`;
@@ -141,14 +144,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       });
     }
 
-    // Persist into server storage
-    if (targetAgency) {
-      targetAgency.leads = [newLead, ...(targetAgency.leads || [])];
-      if (targetForm) {
-        targetForm.submissionCount = (targetForm.submissionCount || 0) + 1;
-      }
-      saveServerAgency(targetAgency);
-    }
+    // Persist into server storage (file-backed disk store)
+    addLeadToServer(newLead, id);
 
     // Response handling
     const finalRedirectUrl = redirectUrl || targetForm?.redirectUrl;

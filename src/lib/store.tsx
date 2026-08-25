@@ -92,6 +92,7 @@ interface FlowDeskStoreContextType {
   saveWhatsAppSettings: (settings: Partial<WhatsAppAPISettings>) => void;
   sendRealEmail: (data: { to: string; subject: string; text: string; html?: string; customSmtp?: SMTPSettings }) => Promise<{ success: boolean; message: string; error?: string }>;
   sendRealWhatsApp: (data: { to: string; message: string; customSettings?: WhatsAppAPISettings }) => Promise<{ success: boolean; message: string; error?: string }>;
+  syncLeadsWithServer: () => Promise<void>;
 }
 
 const FlowDeskStoreContext = createContext<FlowDeskStoreContextType | null>(null);
@@ -177,69 +178,74 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   }, []);
 
   // Periodic Background Synchronization with Server API (Fetches new leads captured via web forms & webhooks)
-  useEffect(() => {
-    if (!organization?.joinCode) return;
+  const syncLeadsWithServer = async () => {
+    try {
+      // 1. Fetch all leads from server
+      const contactsRes = await fetch(`/api/v1/contacts`);
+      if (contactsRes.ok) {
+        const cData = await contactsRes.json();
+        if (cData.success && Array.isArray(cData.leads) && cData.leads.length > 0) {
+          setLeads((prevLeads) => {
+            const existingIds = new Set(prevLeads.map((l) => l.id));
+            const newIncoming = cData.leads.filter((l: Lead) => !existingIds.has(l.id));
 
-    const syncWithServer = async () => {
-      try {
+            if (newIncoming.length > 0) {
+              const combined = [...newIncoming, ...prevLeads];
+              localStorage.setItem("fd_marketing_leads", JSON.stringify(combined));
+              return combined;
+            }
+            return prevLeads;
+          });
+        }
+      }
+
+      // 2. Fetch agency data if logged in
+      if (organization?.joinCode) {
         const cleanCode = organization.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
         const res = await fetch(`/api/v1/agencies?joinCode=${cleanCode}`);
-        if (!res.ok) return;
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.agency) {
+            const serverAgency = data.agency;
 
-        const data = await res.json();
-        if (data.success && data.agency) {
-          const serverAgency = data.agency;
-
-          // Merge server leads with local leads
-          if (serverAgency.leads && Array.isArray(serverAgency.leads) && serverAgency.leads.length > 0) {
-            setLeads((prevLeads) => {
-              const existingIds = new Set(prevLeads.map((l) => l.id));
-              const newIncoming = serverAgency.leads.filter((l: Lead) => !existingIds.has(l.id));
-
-              if (newIncoming.length > 0) {
-                const combined = [...newIncoming, ...prevLeads];
-                localStorage.setItem("fd_marketing_leads", JSON.stringify(combined));
-                return combined;
-              }
-              return prevLeads;
-            });
-          }
-
-          // Merge forms submission count
-          if (serverAgency.forms && Array.isArray(serverAgency.forms)) {
-            setForms((prevForms) => {
-              let changed = false;
-              const updated = prevForms.map((pf) => {
-                const sf = serverAgency.forms.find((f: LeadForm) => f.id === pf.id);
-                if (sf && sf.submissionCount !== pf.submissionCount) {
-                  changed = true;
-                  return { ...pf, submissionCount: sf.submissionCount };
+            // Merge forms submission count
+            if (serverAgency.forms && Array.isArray(serverAgency.forms)) {
+              setForms((prevForms) => {
+                let changed = false;
+                const updated = prevForms.map((pf) => {
+                  const sf = serverAgency.forms.find((f: LeadForm) => f.id === pf.id);
+                  if (sf && sf.submissionCount !== pf.submissionCount) {
+                    changed = true;
+                    return { ...pf, submissionCount: sf.submissionCount };
+                  }
+                  return pf;
+                });
+                if (changed) {
+                  localStorage.setItem("fd_marketing_forms", JSON.stringify(updated));
+                  return updated;
                 }
-                return pf;
+                return prevForms;
               });
-              if (changed) {
-                localStorage.setItem("fd_marketing_forms", JSON.stringify(updated));
-                return updated;
-              }
-              return prevForms;
-            });
+            }
           }
         }
-      } catch (err) {
-        // Silently ignore background polling errors
       }
-    };
+    } catch (err) {
+      // Silently ignore background polling errors
+    }
+  };
 
-    // Initial sync
-    syncWithServer();
+  // Periodic Background Synchronization with Server API
+  useEffect(() => {
+    syncLeadsWithServer();
 
-    // Poll every 3.5 seconds
-    const interval = setInterval(syncWithServer, 3500);
-    window.addEventListener("focus", syncWithServer);
+    // Poll every 2.5 seconds
+    const interval = setInterval(syncLeadsWithServer, 2500);
+    window.addEventListener("focus", syncLeadsWithServer);
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener("focus", syncWithServer);
+      window.removeEventListener("focus", syncLeadsWithServer);
     };
   }, [organization?.joinCode]);
 
@@ -283,6 +289,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
             agency: {
               ...org,
               users: uList,
+              leads: lList,
+              folders: fList,
               templates: tList,
               workflows: wList,
               forms: frmList,
@@ -1492,6 +1500,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         saveWhatsAppSettings,
         sendRealEmail,
         sendRealWhatsApp,
+        syncLeadsWithServer,
       }}
     >
       {children}

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { serverAgencies, getAgencyByJoinCode, saveServerAgency } from "@/lib/serverStore";
+import { getAllAgencies, getAgencyByJoinCode, saveServerAgency } from "@/lib/serverStore";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     success: true,
-    agencies: Array.from(serverAgencies.values()),
+    agencies: getAllAgencies(),
   });
 }
 
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
 
     if (action === "ADD_LEAD" && lead && agency) {
       const existing = getAgencyByJoinCode(agency.joinCode) || agency;
-      const updatedLeads = [lead, ...(existing.leads || [])];
+      const updatedLeads = [lead, ...(existing.leads || []).filter((l: any) => l.id !== lead.id)];
       existing.leads = updatedLeads;
       saveServerAgency(existing);
       return NextResponse.json({ success: true, lead, agency: existing });

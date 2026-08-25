@@ -17,6 +17,7 @@ import {
   ArrowRight,
   MoreVertical,
   Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -51,8 +52,10 @@ export default function LeadsPage() {
     deleteLead,
     updateLeadStatus,
     addLeadToWorkflow,
+    syncLeadsWithServer,
   } = useFlowDesk();
 
+  const [isSyncing, setIsSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
   const [selectedFolder, setSelectedFolder] = useState<string>("ALL");
@@ -156,6 +159,20 @@ export default function LeadsPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isSyncing}
+            onClick={async () => {
+              setIsSyncing(true);
+              await syncLeadsWithServer();
+              setTimeout(() => setIsSyncing(false), 800);
+            }}
+            className="text-xs font-semibold gap-1.5 border-slate-200 text-slate-700 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 cursor-pointer"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? "animate-spin text-indigo-600" : "text-slate-500"}`} />
+            <span>{isSyncing ? "Syncing..." : "Sync Leads"}</span>
+          </Button>
           <Link href="/contacts/import">
             <Button variant="outline" size="sm" className="text-xs font-semibold gap-1.5 border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100">
               <UploadCloud className="h-4 w-4" />
