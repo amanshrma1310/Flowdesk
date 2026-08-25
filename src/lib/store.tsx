@@ -332,18 +332,52 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     role: "MANAGER" | "EMPLOYEE";
     managerId?: string;
   }): { success: boolean; message: string } => {
-    if (!organization || organization.joinCode.toUpperCase() !== joinCode.trim().toUpperCase()) {
-      return { success: false, message: "Invalid Agency Join Code. Please check with your Main Admin." };
+    // Resolve organization from state or localStorage
+    let targetOrg = organization;
+    if (!targetOrg && typeof window !== "undefined") {
+      const saved = localStorage.getItem("fd_marketing_org");
+      if (saved) {
+        try {
+          targetOrg = JSON.parse(saved);
+        } catch (e) {}
+      }
+    }
+
+    if (!targetOrg) {
+      return {
+        success: false,
+        message: "No agency has been created yet. Please click 'Create Agency' tab to create your agency workspace first.",
+      };
+    }
+
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    if (!emailRegex.test(email.trim())) {
+      return {
+        success: false,
+        message: "Please enter a valid email address with a domain (e.g. name@agency.com).",
+      };
+    }
+
+    // Normalize code comparison (strip whitespace and hyphens)
+    const cleanInputCode = joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    const cleanOrgCode = targetOrg.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+
+    if (cleanInputCode !== cleanOrgCode) {
+      return {
+        success: false,
+        message: `Invalid Agency Join Code. The active code for ${targetOrg.name} is "${targetOrg.joinCode}".`,
+      };
     }
 
     const assignedManager = users.find((u) => u.id === managerId);
 
     const newUser: User = {
       id: `usr-${role.toLowerCase()}-${Date.now()}`,
-      name,
-      email,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
       role,
-      agencyId: organization.id,
+      agencyId: targetOrg.id,
       managerId: role === "EMPLOYEE" ? managerId : undefined,
       managerName: role === "EMPLOYEE" ? assignedManager?.name : undefined,
       isActive: true,
@@ -358,12 +392,13 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       },
     };
 
-    const updatedUsers = [...users, newUser];
+    const updatedUsers = [...users.filter((u) => u.email.toLowerCase() !== newUser.email), newUser];
+    setOrganization(targetOrg);
     setUsers(updatedUsers);
     setCurrentUser(newUser);
 
     persist(
-      organization,
+      targetOrg,
       newUser,
       updatedUsers,
       leads,
@@ -376,7 +411,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       whatsAppSettings
     );
 
-    return { success: true, message: `Successfully joined ${organization.name} as ${role}!` };
+    return { success: true, message: `Successfully joined ${targetOrg.name} as ${role}!` };
   };
 
   const login = (email: string): { success: boolean; message: string } => {

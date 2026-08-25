@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Sparkles,
   Building2,
@@ -15,6 +15,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Briefcase,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,8 +25,24 @@ import { useFlowDesk } from "@/lib/store";
 export function AdminOnboardingModal() {
   const { createAgency, joinAgency, login, organization, users } = useFlowDesk();
 
+  // Retrieve stored organization if any
+  const [storedOrg, setStoredOrg] = useState<{ name: string; joinCode: string } | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("fd_marketing_org");
+      if (saved) {
+        try {
+          setStoredOrg(JSON.parse(saved));
+        } catch (e) {}
+      }
+    }
+  }, [organization]);
+
+  const activeOrg = organization || storedOrg;
+
   const [activeTab, setActiveTab] = useState<"CREATE" | "JOIN" | "SIGNIN">(
-    organization ? "SIGNIN" : "CREATE"
+    activeOrg ? "JOIN" : "CREATE"
   );
 
   // Create Agency Fields
@@ -33,7 +51,7 @@ export function AdminOnboardingModal() {
   const [adminEmail, setAdminEmail] = useState("");
 
   // Join Agency Fields
-  const [joinCode, setJoinCode] = useState(organization?.joinCode || "");
+  const [joinCode, setJoinCode] = useState(activeOrg?.joinCode || "");
   const [joinName, setJoinName] = useState("");
   const [joinEmail, setJoinEmail] = useState("");
   const [joinRole, setJoinRole] = useState<"MANAGER" | "EMPLOYEE">("MANAGER");
@@ -46,12 +64,20 @@ export function AdminOnboardingModal() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const isValidEmail = (email: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+  };
+
   const managersList = users.filter((u) => u.role === "MANAGER");
 
   const handleCreateAgency = (e: React.FormEvent) => {
     e.preventDefault();
     if (!agencyName.trim() || !adminName.trim() || !adminEmail.trim()) {
       setErrorMsg("Please fill in all required fields.");
+      return;
+    }
+    if (!isValidEmail(adminEmail)) {
+      setErrorMsg("Please enter a valid work email address (e.g. aman@youragency.com).");
       return;
     }
     setErrorMsg(null);
@@ -66,6 +92,10 @@ export function AdminOnboardingModal() {
     e.preventDefault();
     if (!joinCode.trim() || !joinName.trim() || !joinEmail.trim()) {
       setErrorMsg("Please enter the Agency Join Code, Name, and Email.");
+      return;
+    }
+    if (!isValidEmail(joinEmail)) {
+      setErrorMsg("Please enter a valid work email address with domain (e.g. rahul@company.com).");
       return;
     }
     setErrorMsg(null);
@@ -88,6 +118,10 @@ export function AdminOnboardingModal() {
     e.preventDefault();
     if (!signInEmail.trim()) {
       setErrorMsg("Please enter your registered email address.");
+      return;
+    }
+    if (!isValidEmail(signInEmail)) {
+      setErrorMsg("Please enter a valid email format.");
       return;
     }
     setErrorMsg(null);
@@ -140,6 +174,9 @@ export function AdminOnboardingModal() {
             onClick={() => {
               setActiveTab("JOIN");
               setErrorMsg(null);
+              if (activeOrg && !joinCode) {
+                setJoinCode(activeOrg.joinCode);
+              }
             }}
             className={`flex-1 py-2 font-semibold rounded-lg transition-all cursor-pointer ${
               activeTab === "JOIN"
@@ -149,7 +186,7 @@ export function AdminOnboardingModal() {
           >
             Join Agency
           </button>
-          {organization && (
+          {activeOrg && (
             <button
               type="button"
               onClick={() => {
@@ -218,9 +255,16 @@ export function AdminOnboardingModal() {
               </div>
 
               <div>
-                <label className="font-semibold text-slate-300 block mb-1">
-                  Admin Work Email *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-300">
+                    Admin Work Email *
+                  </label>
+                  {adminEmail && (
+                    <span className={`text-[10px] font-bold ${isValidEmail(adminEmail) ? "text-emerald-400" : "text-amber-400"}`}>
+                      {isValidEmail(adminEmail) ? "Valid Email Format ✓" : "Enter complete email"}
+                    </span>
+                  )}
+                </div>
                 <div className="relative">
                   <Mail className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
                   <Input
@@ -255,6 +299,24 @@ export function AdminOnboardingModal() {
         {/* 2. JOIN AGENCY FORM (Manager / Employee) */}
         {activeTab === "JOIN" && (
           <form onSubmit={handleJoinAgency} className="space-y-4">
+            {/* Active Agency helper chip */}
+            {activeOrg && (
+              <div className="p-3 bg-indigo-950/40 border border-indigo-800 rounded-xl text-xs flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 text-[11px] block">Active Agency:</span>
+                  <strong className="text-white text-xs">{activeOrg.name}</strong>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setJoinCode(activeOrg.joinCode)}
+                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[11px] font-mono font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Key className="h-3 w-3" />
+                  <span>Insert Code: {activeOrg.joinCode}</span>
+                </button>
+              </div>
+            )}
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="font-semibold text-slate-300 block mb-1">
@@ -289,9 +351,16 @@ export function AdminOnboardingModal() {
               </div>
 
               <div>
-                <label className="font-semibold text-slate-300 block mb-1">
-                  Your Work Email *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-300">
+                    Your Work Email *
+                  </label>
+                  {joinEmail && (
+                    <span className={`text-[10px] font-bold ${isValidEmail(joinEmail) ? "text-emerald-400" : "text-amber-400"}`}>
+                      {isValidEmail(joinEmail) ? "Valid Email Format ✓" : "Enter complete email"}
+                    </span>
+                  )}
+                </div>
                 <div className="relative">
                   <Mail className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
                   <Input
@@ -370,18 +439,18 @@ export function AdminOnboardingModal() {
         )}
 
         {/* 3. SIGN IN FORM */}
-        {activeTab === "SIGNIN" && organization && (
+        {activeTab === "SIGNIN" && activeOrg && (
           <form onSubmit={handleSignIn} className="space-y-4">
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1">
               <p className="text-slate-400">Current Agency:</p>
-              <p className="font-bold text-slate-100 text-sm">{organization.name}</p>
-              <p className="font-mono text-[11px] text-indigo-400">Join Code: {organization.joinCode}</p>
+              <p className="font-bold text-slate-100 text-sm">{activeOrg.name}</p>
+              <p className="font-mono text-[11px] text-indigo-400">Join Code: {activeOrg.joinCode}</p>
             </div>
 
             <div className="space-y-3 text-xs">
               <div>
                 <label className="font-semibold text-slate-300 block mb-1">
-                  Registered Email Address *
+                  Registered Work Email Address *
                 </label>
                 <div className="relative">
                   <Mail className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
