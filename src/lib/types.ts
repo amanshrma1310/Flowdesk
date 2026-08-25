@@ -3,7 +3,7 @@ export type UserRole = "ADMIN" | "MANAGER" | "EMPLOYEE";
 export interface Organization {
   id: string;
   name: string;
-  joinCode: string;
+  joinCode: string; // Used as Agency ID for login
   createdAt: string;
   adminId: string;
   adminName: string;
@@ -28,13 +28,30 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: UserRole;
+  password?: string;
+  temporaryPassword?: string;
+  isFirstLogin?: boolean;
+  phone?: string;
+  avatar?: string;
+  role: UserRole; // IMMUTABLE by employee/manager - locked by Admin
   agencyId: string;
+  agencyJoinCode?: string; // Agency ID
   managerId?: string; // If employee, assigned manager
   managerName?: string;
   isActive: boolean;
   createdAt: string;
   permissions?: Partial<UserPermissions>;
+}
+
+export interface SentEmailLog {
+  id: string;
+  toEmail: string;
+  toName: string;
+  subject: string;
+  body: string;
+  agencyId: string;
+  temporaryPassword?: string;
+  sentAt: string;
 }
 
 export type LeadStatus =

@@ -9,21 +9,28 @@ import {
   Lock,
   ArrowRight,
   Shield,
-  Send,
-  UserPlus,
   Key,
   CheckCircle2,
   AlertCircle,
-  Briefcase,
-  Copy,
-  Check,
+  RotateCw,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useFlowDesk } from "@/lib/store";
 
+function generateCaptcha(): { text: string; answer: string } {
+  const num1 = Math.floor(Math.random() * 9) + 1;
+  const num2 = Math.floor(Math.random() * 9) + 1;
+  return {
+    text: `What is ${num1} + ${num2}?`,
+    answer: String(num1 + num2),
+  };
+}
+
 export function AdminOnboardingModal() {
-  const { createAgency, joinAgency, login, organization, users } = useFlowDesk();
+  const { createAgency, login, organization } = useFlowDesk();
 
   // Retrieve stored organization if any
   const [storedOrg, setStoredOrg] = useState<{ name: string; joinCode: string } | null>(null);
@@ -41,94 +48,96 @@ export function AdminOnboardingModal() {
 
   const activeOrg = organization || storedOrg;
 
-  const [activeTab, setActiveTab] = useState<"CREATE" | "JOIN" | "SIGNIN">(
-    activeOrg ? "JOIN" : "CREATE"
-  );
+  // Active Tab: Default to SIGNIN
+  const [activeTab, setActiveTab] = useState<"SIGNIN" | "CREATE">("SIGNIN");
 
-  // Create Agency Fields
+  // Sign In Fields
+  const [signInAgencyId, setSignInAgencyId] = useState(activeOrg?.joinCode || "");
+  const [signInEmail, setSignInEmail] = useState("");
+  const [signInPassword, setSignInPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Captcha State
+  const [captcha, setCaptcha] = useState<{ text: string; answer: string }>(generateCaptcha());
+  const [captchaInput, setCaptchaInput] = useState("");
+
+  // Create Agency Fields (Admin Only)
   const [agencyName, setAgencyName] = useState("");
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
-
-  // Join Agency Fields
-  const [joinCode, setJoinCode] = useState(activeOrg?.joinCode || "");
-  const [joinName, setJoinName] = useState("");
-  const [joinEmail, setJoinEmail] = useState("");
-  const [joinRole, setJoinRole] = useState<"MANAGER" | "EMPLOYEE">("MANAGER");
-  const [selectedManagerId, setSelectedManagerId] = useState<string>("");
-
-  // Sign In Field
-  const [signInEmail, setSignInEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
 
   // Feedback alerts
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const refreshCaptcha = () => {
+    setCaptcha(generateCaptcha());
+    setCaptchaInput("");
+  };
 
   const isValidEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
   };
 
-  const managersList = users.filter((u) => u.role === "MANAGER");
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+
+    if (!signInAgencyId.trim() || !signInEmail.trim() || !signInPassword.trim()) {
+      setErrorMsg("Please enter your Agency ID, Work Email, and Password.");
+      return;
+    }
+
+    if (!isValidEmail(signInEmail)) {
+      setErrorMsg("Please enter a valid work email address.");
+      return;
+    }
+
+    // Verify Captcha
+    if (captchaInput.trim() !== captcha.answer) {
+      setErrorMsg("Incorrect security captcha. Please solve the calculation again.");
+      refreshCaptcha();
+      return;
+    }
+
+    setIsLoading(true);
+    const res = await login({
+      agencyId: signInAgencyId,
+      email: signInEmail,
+      password: signInPassword,
+    });
+    setIsLoading(false);
+
+    if (!res.success) {
+      setErrorMsg(res.message);
+      refreshCaptcha();
+    }
+  };
 
   const handleCreateAgency = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!agencyName.trim() || !adminName.trim() || !adminEmail.trim()) {
-      setErrorMsg("Please fill in all required fields.");
+    setErrorMsg(null);
+
+    if (!agencyName.trim() || !adminName.trim() || !adminEmail.trim() || !adminPassword.trim()) {
+      setErrorMsg("Please fill in all required fields including admin password.");
       return;
     }
+
     if (!isValidEmail(adminEmail)) {
       setErrorMsg("Please enter a valid work email address (e.g. aman@youragency.com).");
       return;
     }
-    setErrorMsg(null);
+
+    setIsLoading(true);
     await createAgency({
       agencyName,
       adminName,
       adminEmail,
+      adminPassword,
     });
-  };
-
-  const handleJoinAgency = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!joinCode.trim() || !joinName.trim() || !joinEmail.trim()) {
-      setErrorMsg("Please enter the Agency Join Code, Name, and Email.");
-      return;
-    }
-    if (!isValidEmail(joinEmail)) {
-      setErrorMsg("Please enter a valid work email address with domain (e.g. rahul@company.com).");
-      return;
-    }
-    setErrorMsg(null);
-    const res = await joinAgency({
-      joinCode,
-      name: joinName,
-      email: joinEmail,
-      role: joinRole,
-      managerId: joinRole === "EMPLOYEE" ? selectedManagerId : undefined,
-    });
-
-    if (!res.success) {
-      setErrorMsg(res.message);
-    } else {
-      setSuccessMsg(res.message);
-    }
-  };
-
-  const handleSignIn = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!signInEmail.trim()) {
-      setErrorMsg("Please enter your registered email address.");
-      return;
-    }
-    if (!isValidEmail(signInEmail)) {
-      setErrorMsg("Please enter a valid email format.");
-      return;
-    }
-    setErrorMsg(null);
-    const res = login(signInEmail);
-    if (!res.success) {
-      setErrorMsg(res.message);
-    }
+    setIsLoading(false);
   };
 
   return (
@@ -139,7 +148,7 @@ export function AdminOnboardingModal() {
         <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl" />
       </div>
 
-      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 text-white space-y-6 animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 text-white space-y-6 animate-in fade-in zoom-in-95 duration-200">
         {/* Brand Header */}
         <div className="text-center space-y-1.5">
           <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/30 text-white mb-2">
@@ -153,8 +162,23 @@ export function AdminOnboardingModal() {
           </p>
         </div>
 
-        {/* Tab Switcher */}
+        {/* Tab Switcher (ONLY Sign In & Create Agency) */}
         <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("SIGNIN");
+              setErrorMsg(null);
+              refreshCaptcha();
+            }}
+            className={`flex-1 py-2 font-semibold rounded-lg transition-all cursor-pointer ${
+              activeTab === "SIGNIN"
+                ? "bg-indigo-600 text-white shadow-xs"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            Sign In
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -167,41 +191,8 @@ export function AdminOnboardingModal() {
                 : "text-slate-400 hover:text-white"
             }`}
           >
-            Create Agency
+            Create Agency (Admin)
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("JOIN");
-              setErrorMsg(null);
-              if (activeOrg && !joinCode) {
-                setJoinCode(activeOrg.joinCode);
-              }
-            }}
-            className={`flex-1 py-2 font-semibold rounded-lg transition-all cursor-pointer ${
-              activeTab === "JOIN"
-                ? "bg-indigo-600 text-white shadow-xs"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Join Agency
-          </button>
-          {activeOrg && (
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab("SIGNIN");
-                setErrorMsg(null);
-              }}
-              className={`flex-1 py-2 font-semibold rounded-lg transition-all cursor-pointer ${
-                activeTab === "SIGNIN"
-                  ? "bg-indigo-600 text-white shadow-xs"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              Sign In
-            </button>
-          )}
         </div>
 
         {/* Feedback Messages */}
@@ -218,7 +209,125 @@ export function AdminOnboardingModal() {
           </div>
         )}
 
-        {/* 1. CREATE AGENCY FORM (Admin) */}
+        {/* 1. SIGN IN FORM (Using Agency ID, Work Email, Password, & Captcha) */}
+        {activeTab === "SIGNIN" && (
+          <form onSubmit={handleSignIn} className="space-y-4">
+            <div className="space-y-3 text-xs">
+              {/* Agency ID */}
+              <div>
+                <label className="font-semibold text-slate-300 block mb-1">
+                  Agency ID / Join Code *
+                </label>
+                <div className="relative">
+                  <Key className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
+                  <Input
+                    required
+                    placeholder="e.g. ZER-2242 (From your Onboarding Email)"
+                    value={signInAgencyId}
+                    onChange={(e) => setSignInAgencyId(e.target.value.toUpperCase())}
+                    className="pl-9 bg-slate-950 border-slate-800 text-slate-100 font-mono placeholder:text-slate-600 focus:border-indigo-500 uppercase"
+                  />
+                </div>
+              </div>
+
+              {/* Work Email */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-300">
+                    Registered Work Email *
+                  </label>
+                  {signInEmail && (
+                    <span className={`text-[10px] font-bold ${isValidEmail(signInEmail) ? "text-emerald-400" : "text-amber-400"}`}>
+                      {isValidEmail(signInEmail) ? "Valid Email ✓" : "Enter full email"}
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <Mail className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
+                  <Input
+                    required
+                    type="email"
+                    placeholder="e.g. rahul@apexagency.com"
+                    value={signInEmail}
+                    onChange={(e) => setSignInEmail(e.target.value)}
+                    className="pl-9 bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="font-semibold text-slate-300 block mb-1">
+                  Password / First-Time Temporary Password *
+                </label>
+                <div className="relative">
+                  <Lock className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
+                  <Input
+                    required
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={signInPassword}
+                    onChange={(e) => setSignInPassword(e.target.value)}
+                    className="pl-9 pr-9 bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus:border-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  First-time user? Use the temporary password sent to your email. You can change it after login.
+                </p>
+              </div>
+
+              {/* Interactive Security Captcha (Requested Feature) */}
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[11px] text-slate-300 flex items-center gap-1.5">
+                    <Shield className="h-3.5 w-3.5 text-indigo-400" />
+                    <span>Security Verification (Captcha)</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={refreshCaptcha}
+                    className="p-1 rounded text-slate-400 hover:text-indigo-400 transition-colors"
+                    title="Refresh calculation"
+                  >
+                    <RotateCw className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="px-3 py-1.5 bg-indigo-950/70 border border-indigo-800 text-indigo-200 font-mono font-bold rounded-lg text-xs select-none">
+                    {captcha.text}
+                  </div>
+                  <Input
+                    required
+                    type="number"
+                    placeholder="Your answer"
+                    value={captchaInput}
+                    onChange={(e) => setCaptchaInput(e.target.value)}
+                    className="bg-slate-900 border-slate-800 text-slate-100 text-xs text-center font-mono h-8"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs py-2.5 shadow-lg shadow-indigo-600/30 gap-1.5 cursor-pointer"
+            >
+              <span>{isLoading ? "Verifying..." : "Sign In to Workspace"}</span>
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </form>
+        )}
+
+        {/* 2. CREATE AGENCY FORM (Admin Only) */}
         {activeTab === "CREATE" && (
           <form onSubmit={handleCreateAgency} className="space-y-4">
             <div className="space-y-3 text-xs">
@@ -261,7 +370,7 @@ export function AdminOnboardingModal() {
                   </label>
                   {adminEmail && (
                     <span className={`text-[10px] font-bold ${isValidEmail(adminEmail) ? "text-emerald-400" : "text-amber-400"}`}>
-                      {isValidEmail(adminEmail) ? "Valid Email Format ✓" : "Enter complete email"}
+                      {isValidEmail(adminEmail) ? "Valid Email ✓" : "Enter complete email"}
                     </span>
                   )}
                 </div>
@@ -277,6 +386,23 @@ export function AdminOnboardingModal() {
                   />
                 </div>
               </div>
+
+              <div>
+                <label className="font-semibold text-slate-300 block mb-1">
+                  Admin Master Password *
+                </label>
+                <div className="relative">
+                  <Lock className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
+                  <Input
+                    required
+                    type="password"
+                    placeholder="Create a strong admin password"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    className="pl-9 bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus:border-indigo-500"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="p-3 bg-indigo-950/40 border border-indigo-900/60 rounded-xl text-[11px] text-indigo-300 flex items-start gap-2">
@@ -288,189 +414,10 @@ export function AdminOnboardingModal() {
 
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs py-2.5 shadow-lg shadow-indigo-600/30 gap-1.5"
+              disabled={isLoading}
+              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs py-2.5 shadow-lg shadow-indigo-600/30 gap-1.5 cursor-pointer"
             >
-              <span>Create Agency & Launch</span>
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </form>
-        )}
-
-        {/* 2. JOIN AGENCY FORM (Manager / Employee) */}
-        {activeTab === "JOIN" && (
-          <form onSubmit={handleJoinAgency} className="space-y-4">
-            {/* Active Agency helper chip */}
-            {activeOrg && (
-              <div className="p-3 bg-indigo-950/40 border border-indigo-800 rounded-xl text-xs flex items-center justify-between">
-                <div>
-                  <span className="text-slate-400 text-[11px] block">Active Agency:</span>
-                  <strong className="text-white text-xs">{activeOrg.name}</strong>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setJoinCode(activeOrg.joinCode)}
-                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[11px] font-mono font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                >
-                  <Key className="h-3 w-3" />
-                  <span>Insert Code: {activeOrg.joinCode}</span>
-                </button>
-              </div>
-            )}
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="font-semibold text-slate-300 block mb-1">
-                  Agency Join Code *
-                </label>
-                <div className="relative">
-                  <Key className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
-                  <Input
-                    required
-                    placeholder="e.g. APE-4829 (Provided by your Admin)"
-                    value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value)}
-                    className="pl-9 bg-slate-950 border-slate-800 text-slate-100 font-mono placeholder:text-slate-600 focus:border-indigo-500 uppercase"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-300 block mb-1">
-                  Your Full Name *
-                </label>
-                <div className="relative">
-                  <User className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
-                  <Input
-                    required
-                    placeholder="e.g. Rahul Kumar or Priya Patel"
-                    value={joinName}
-                    onChange={(e) => setJoinName(e.target.value)}
-                    className="pl-9 bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-semibold text-slate-300">
-                    Your Work Email *
-                  </label>
-                  {joinEmail && (
-                    <span className={`text-[10px] font-bold ${isValidEmail(joinEmail) ? "text-emerald-400" : "text-amber-400"}`}>
-                      {isValidEmail(joinEmail) ? "Valid Email Format ✓" : "Enter complete email"}
-                    </span>
-                  )}
-                </div>
-                <div className="relative">
-                  <Mail className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
-                  <Input
-                    required
-                    type="email"
-                    placeholder="e.g. rahul@apexagency.com"
-                    value={joinEmail}
-                    onChange={(e) => setJoinEmail(e.target.value)}
-                    className="pl-9 bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-300 block mb-1">
-                  Select Your Role *
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setJoinRole("MANAGER")}
-                    className={`p-2.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      joinRole === "MANAGER"
-                        ? "border-purple-500 bg-purple-950/60 text-purple-200"
-                        : "border-slate-800 bg-slate-950 text-slate-400"
-                    }`}
-                  >
-                    <Briefcase className="h-4 w-4 text-purple-400" />
-                    <span>Pod Manager</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setJoinRole("EMPLOYEE")}
-                    className={`p-2.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      joinRole === "EMPLOYEE"
-                        ? "border-emerald-500 bg-emerald-950/60 text-emerald-200"
-                        : "border-slate-800 bg-slate-950 text-slate-400"
-                    }`}
-                  >
-                    <User className="h-4 w-4 text-emerald-400" />
-                    <span>Marketing Rep</span>
-                  </button>
-                </div>
-              </div>
-
-              {joinRole === "EMPLOYEE" && managersList.length > 0 && (
-                <div>
-                  <label className="font-semibold text-slate-300 block mb-1">
-                    Assign Reporting Manager (Optional)
-                  </label>
-                  <select
-                    value={selectedManagerId}
-                    onChange={(e) => setSelectedManagerId(e.target.value)}
-                    className="w-full h-9 rounded-lg border border-slate-800 bg-slate-950 text-xs px-3 text-slate-200"
-                  >
-                    <option value="">-- Select Manager --</option>
-                    {managersList.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 shadow-md shadow-indigo-600/30 gap-1.5"
-            >
-              <span>Join Agency Workspace</span>
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </form>
-        )}
-
-        {/* 3. SIGN IN FORM */}
-        {activeTab === "SIGNIN" && activeOrg && (
-          <form onSubmit={handleSignIn} className="space-y-4">
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1">
-              <p className="text-slate-400">Current Agency:</p>
-              <p className="font-bold text-slate-100 text-sm">{activeOrg.name}</p>
-              <p className="font-mono text-[11px] text-indigo-400">Join Code: {activeOrg.joinCode}</p>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="font-semibold text-slate-300 block mb-1">
-                  Registered Work Email Address *
-                </label>
-                <div className="relative">
-                  <Mail className="h-4 w-4 absolute left-3 top-2.5 text-slate-500" />
-                  <Input
-                    required
-                    type="email"
-                    placeholder="e.g. yourname@agency.com"
-                    value={signInEmail}
-                    onChange={(e) => setSignInEmail(e.target.value)}
-                    className="pl-9 bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 shadow-md shadow-indigo-600/30 gap-1.5"
-            >
-              <span>Sign In to Dashboard</span>
+              <span>{isLoading ? "Creating..." : "Create Agency & Launch"}</span>
               <ArrowRight className="h-4 w-4" />
             </Button>
           </form>

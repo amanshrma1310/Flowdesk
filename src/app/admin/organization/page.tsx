@@ -7,12 +7,15 @@ import {
   Shield,
   Briefcase,
   User,
-  ArrowRight,
-  MoreVertical,
-  Key,
   CheckCircle2,
-  Trash2,
+  AlertCircle,
+  Mail,
   Lock,
+  Key,
+  Copy,
+  Check,
+  Send,
+  SendHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,8 +23,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useFlowDesk } from "@/lib/store";
+import { User as UserType, SentEmailLog } from "@/lib/types";
 
-export default function UserManagementPage() {
+export default function OrganizationPage() {
   const {
     organization,
     currentUser,
@@ -30,48 +34,54 @@ export default function UserManagementPage() {
     createEmployee,
     assignEmployeeToManager,
     toggleUserActive,
+    sentEmailLogs,
   } = useFlowDesk();
 
-  const [isAddManagerOpen, setIsAddManagerOpen] = useState(false);
-  const [isAddEmployeeOpen, setIsAddEmployeeOpen] = useState(false);
+  // Create User Modal
+  const [isOpen, setIsOpen] = useState(false);
+  const [roleToCreate, setRoleToCreate] = useState<"MANAGER" | "EMPLOYEE">("EMPLOYEE");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [managerId, setManagerId] = useState("");
 
-  // Form states
-  const [mgrName, setMgrName] = useState("");
-  const [mgrEmail, setMgrEmail] = useState("");
+  // Post-Creation Credential Modal
+  const [credentialModalOpen, setCredentialModalOpen] = useState(false);
+  const [createdInfo, setCreatedInfo] = useState<{
+    user: UserType;
+    tempPassword: string;
+    emailLog: SentEmailLog;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const [empName, setEmpName] = useState("");
-  const [empEmail, setEmpEmail] = useState("");
-  const [empManagerId, setEmpManagerId] = useState("");
+  const managersList = users.filter((u) => u.role === "MANAGER" && u.isActive);
+  const employeesList = users.filter((u) => u.role === "EMPLOYEE");
 
-  const managers = users.filter((u) => u.role === "MANAGER");
-  const employees = users.filter((u) => u.role === "EMPLOYEE");
-
-  const handleAddManager = (e: React.FormEvent) => {
+  const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mgrName.trim() || !mgrEmail.trim()) return;
-    createManager({ name: mgrName, email: mgrEmail });
-    setIsAddManagerOpen(false);
-    setMgrName("");
-    setMgrEmail("");
+    if (!name.trim() || !email.trim()) return;
+
+    let res: { user: UserType; tempPassword: string; emailLog: SentEmailLog };
+    if (roleToCreate === "MANAGER") {
+      res = createManager({ name, email });
+    } else {
+      res = createEmployee({ name, email, managerId: managerId || undefined });
+    }
+
+    setCreatedInfo(res);
+    setIsOpen(false);
+    setName("");
+    setEmail("");
+    setManagerId("");
+    setCredentialModalOpen(true);
   };
 
-  const handleAddEmployee = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!empName.trim() || !empEmail.trim()) return;
-    createEmployee({ name: empName, email: empEmail, managerId: empManagerId || undefined });
-    setIsAddEmployeeOpen(false);
-    setEmpName("");
-    setEmpEmail("");
-    setEmpManagerId("");
+  const copyCredentials = () => {
+    if (!createdInfo || !organization) return;
+    const text = `FlowDesk AI Login Credentials:\n• Organization: ${organization.name}\n• Agency ID: ${organization.joinCode}\n• Email: ${createdInfo.user.email}\n• Role: ${createdInfo.user.role}\n• Temporary Password: ${createdInfo.tempPassword}\n\nLogin URL: http://localhost:3000`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
-
-  if (!currentUser || currentUser.role !== "ADMIN") {
-    return (
-      <div className="p-12 text-center text-xs text-slate-500">
-        Access Denied. Only the Main Administrator can access User & Team Management.
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -80,151 +90,101 @@ export default function UserManagementPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              User & Team Management
+              User & Pod Management
             </h1>
             <Badge variant="purple" className="text-xs font-bold">
-              {users.length} Total Users
+              {users.length} Users
             </Badge>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Admin hierarchy management: Create managers, create employees, and configure sales pod assignments (PDF Pages 2, 4, 5).
+            Create managers and marketing reps. Onboarding invitation emails with Agency ID & temporary passwords are automatically dispatched.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <Button
             size="sm"
-            variant="outline"
-            onClick={() => setIsAddManagerOpen(true)}
-            className="text-xs font-semibold gap-1.5 border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100"
+            onClick={() => {
+              setRoleToCreate("MANAGER");
+              setIsOpen(true);
+            }}
+            className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold gap-1.5"
           >
-            <Briefcase className="h-3.5 w-3.5" />
-            <span>+ Add Manager</span>
+            <UserPlus className="h-4 w-4" />
+            <span>Add Pod Manager</span>
           </Button>
 
           <Button
             size="sm"
-            onClick={() => setIsAddEmployeeOpen(true)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold gap-1.5 shadow-xs"
+            onClick={() => {
+              setRoleToCreate("EMPLOYEE");
+              setIsOpen(true);
+            }}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold gap-1.5"
           >
-            <UserPlus className="h-3.5 w-3.5" />
-            <span>+ Add Employee</span>
+            <UserPlus className="h-4 w-4" />
+            <span>Add Marketing Rep</span>
           </Button>
         </div>
       </div>
 
-      {/* Hierarchy Tree Visualization (PDF Page 1 & 5) */}
+      {/* Agency ID Banner */}
+      {organization && (
+        <div className="p-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl border border-slate-800 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-bold">
+              <Key className="h-5 w-5" />
+            </div>
+            <div>
+              <span className="text-[11px] text-slate-400 block">Workspace Agency ID (Used for Team Login):</span>
+              <strong className="text-lg font-mono font-bold text-white tracking-wide">
+                {organization.joinCode}
+              </strong>
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-300">
+            <span className="font-semibold">{organization.name}</span> • Main Admin: {organization.adminName}
+          </div>
+        </div>
+      )}
+
+      {/* Users Directory Table */}
       <Card>
         <CardHeader className="p-5 pb-3">
           <CardTitle className="text-sm font-bold flex items-center gap-2">
-            <Shield className="h-4 w-4 text-indigo-600" />
-            <span>Agency Reporting Tree</span>
+            <Users className="h-4 w-4 text-indigo-600" />
+            <span>All Team Members</span>
           </CardTitle>
           <CardDescription className="text-xs">
-            Managers see only their assigned employees&apos; leads. Employees see only assigned leads.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-5 pt-0 space-y-4">
-          {/* Main Admin Node */}
-          <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between text-xs dark:bg-indigo-950/40 dark:border-indigo-900">
-            <div className="flex items-center gap-2.5">
-              <Shield className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-              <div>
-                <strong className="text-indigo-950 dark:text-indigo-200">Main Admin: {organization?.adminName}</strong>
-                <p className="text-[10px] text-indigo-700 dark:text-indigo-400">{organization?.adminEmail} • Full Governance</p>
-              </div>
-            </div>
-            <span className="text-[10px] font-mono font-bold bg-white px-2 py-0.5 rounded border border-indigo-200 text-indigo-800 dark:bg-slate-900 dark:border-slate-700">
-              Agency Join Code: {organization?.joinCode}
-            </span>
-          </div>
-
-          {/* Managers and their Employees */}
-          {managers.length === 0 ? (
-            <div className="p-6 text-center text-xs text-slate-400 border border-dashed rounded-xl">
-              No managers added yet. Click &quot;+ Add Manager&quot; to establish your first sales pod.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {managers.map((mgr) => {
-                const subEmps = employees.filter((e) => e.managerId === mgr.id);
-
-                return (
-                  <div key={mgr.id} className="p-4 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3 dark:bg-purple-950/20 dark:border-purple-900">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-lg bg-purple-100 text-purple-700 font-bold flex items-center justify-center dark:bg-purple-950 dark:text-purple-300">
-                          {mgr.name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900 dark:text-white">Manager: {mgr.name}</p>
-                          <p className="text-[10px] text-slate-500">{mgr.email}</p>
-                        </div>
-                      </div>
-                      <Badge variant="purple" className="text-[10px]">
-                        {subEmps.length} Employees
-                      </Badge>
-                    </div>
-
-                    {/* Subordinate Employees (PDF Page 5 Structure) */}
-                    <div className="pl-4 space-y-1.5 border-l-2 border-purple-200 dark:border-purple-800 text-xs">
-                      {subEmps.length === 0 ? (
-                        <p className="text-[11px] text-slate-400 italic">No employees assigned to this manager.</p>
-                      ) : (
-                        subEmps.map((emp) => (
-                          <div key={emp.id} className="p-2 rounded-lg bg-white border border-slate-200 flex items-center justify-between dark:bg-slate-900 dark:border-slate-800">
-                            <div className="flex items-center gap-2">
-                              <User className="h-3.5 w-3.5 text-emerald-600" />
-                              <span className="font-medium text-slate-800 dark:text-slate-200">{emp.name}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-400">{emp.email}</span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* All Users CRUD Table */}
-      <Card>
-        <CardHeader className="p-5 pb-3">
-          <CardTitle className="text-sm font-bold">All User Accounts</CardTitle>
-          <CardDescription className="text-xs">
-            Edit user roles, change manager assignments, or deactivate accounts.
+            Manage active users, reporting lines, and access status.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-xs text-left">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/70 text-slate-500 font-semibold uppercase tracking-wider dark:border-slate-800 dark:bg-slate-900/50">
-                <th className="p-4 pl-5">User</th>
-                <th className="p-4">Role</th>
-                <th className="p-4">Reporting Manager</th>
-                <th className="p-4">Account Status</th>
-                <th className="p-4 pr-5 text-right">Actions</th>
+              <tr className="border-b border-slate-100 bg-slate-50 text-slate-400 uppercase tracking-wider font-semibold dark:bg-slate-900">
+                <th className="p-3 pl-5">User</th>
+                <th className="p-3">Work Email</th>
+                <th className="p-3">Role</th>
+                <th className="p-3">Assigned Manager</th>
+                <th className="p-3">Status</th>
+                <th className="p-3 pr-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {users.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                  <td className="p-4 pl-5">
+                <tr key={u.id} className="hover:bg-slate-50/50">
+                  <td className="p-3 pl-5">
                     <div className="flex items-center gap-2.5">
-                      <div className="h-7 w-7 rounded-full bg-slate-100 font-bold text-[11px] flex items-center justify-center text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                      <div className="h-7 w-7 rounded-full bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center dark:bg-indigo-950 dark:text-indigo-300">
                         {u.name.slice(0, 2).toUpperCase()}
                       </div>
-                      <div>
-                        <p className="font-bold text-slate-900 dark:text-white">{u.name}</p>
-                        <p className="text-[10px] text-slate-500">{u.email}</p>
-                      </div>
+                      <span className="font-bold text-slate-900 dark:text-white">{u.name}</span>
                     </div>
                   </td>
-
-                  <td className="p-4">
+                  <td className="p-3 text-slate-500 font-mono text-[11px]">{u.email}</td>
+                  <td className="p-3">
                     <Badge
                       variant={u.role === "ADMIN" ? "default" : u.role === "MANAGER" ? "purple" : "secondary"}
                       className="text-[10px]"
@@ -232,45 +192,36 @@ export default function UserManagementPage() {
                       {u.role}
                     </Badge>
                   </td>
-
-                  <td className="p-4">
+                  <td className="p-3">
                     {u.role === "EMPLOYEE" ? (
                       <select
                         value={u.managerId || ""}
                         onChange={(e) => assignEmployeeToManager(u.id, e.target.value)}
-                        className="h-7 rounded border border-slate-200 text-[11px] px-2 bg-white dark:bg-slate-900"
+                        className="h-7 rounded border border-slate-200 text-xs px-2 bg-white dark:bg-slate-950"
                       >
                         <option value="">-- No Manager --</option>
-                        {managers.map((m) => (
+                        {managersList.map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.name}
                           </option>
                         ))}
                       </select>
                     ) : (
-                      <span className="text-[11px] text-slate-400">—</span>
+                      <span className="text-slate-400">—</span>
                     )}
                   </td>
-
-                  <td className="p-4">
-                    <button
-                      onClick={() => toggleUserActive(u.id)}
-                      disabled={u.role === "ADMIN"}
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
-                        u.isActive ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
-                      }`}
-                    >
-                      {u.isActive ? "Active" : "Deactivated"}
-                    </button>
+                  <td className="p-3">
+                    <Badge variant={u.isActive ? "success" : "destructive"} className="text-[10px]">
+                      {u.isActive ? "Active" : "Disabled"}
+                    </Badge>
                   </td>
-
-                  <td className="p-4 pr-5 text-right">
+                  <td className="p-3 pr-5 text-right">
                     {u.role !== "ADMIN" && (
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => toggleUserActive(u.id)}
-                        className="h-7 text-[11px] text-slate-600"
+                        className="h-7 text-[11px]"
                       >
                         {u.isActive ? "Deactivate" : "Activate"}
                       </Button>
@@ -283,100 +234,149 @@ export default function UserManagementPage() {
         </CardContent>
       </Card>
 
-      {/* CREATE MANAGER MODAL */}
-      <Dialog open={isAddManagerOpen} onOpenChange={setIsAddManagerOpen}>
+      {/* Dispatched Onboarding Emails Log */}
+      <Card>
+        <CardHeader className="p-5 pb-3">
+          <CardTitle className="text-sm font-bold flex items-center gap-2">
+            <Mail className="h-4 w-4 text-sky-600" />
+            <span>Onboarding Credentials Dispatch Log</span>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Audit logs of invitation emails sent to managers and employees with their initial credentials.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-5 pt-0">
+          {sentEmailLogs.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">
+              No user credentials dispatched yet. Add a manager or sales rep above to trigger credential emails.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {sentEmailLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs dark:bg-slate-800/60 dark:border-slate-700"
+                >
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 dark:text-white">{log.toName}</span>
+                      <span className="text-slate-400 font-mono text-[11px]">({log.toEmail})</span>
+                      <Badge variant="success" className="text-[10px]">Email Sent ✓</Badge>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-mono">
+                      Agency ID: <strong>{log.agencyId}</strong> • Temp Password: <strong>{log.temporaryPassword}</strong>
+                    </p>
+                  </div>
+
+                  <span className="text-[10px] text-slate-400 font-mono">{log.sentAt}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 1. CREATE USER MODAL */}
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-md bg-white dark:bg-slate-900">
           <DialogHeader>
-            <DialogTitle className="text-base font-bold">Create Pod Manager</DialogTitle>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-indigo-600" />
+              <span>Create {roleToCreate === "MANAGER" ? "Pod Manager" : "Marketing Rep"}</span>
+            </DialogTitle>
             <DialogDescription className="text-xs">
-              Managers supervise their assigned sales pod and see team leads & campaign reports.
+              System will generate a temporary password and dispatch an invitation email with Agency ID.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleAddManager} className="space-y-3 pt-2 text-xs">
+          <form onSubmit={handleCreate} className="space-y-3 pt-2 text-xs">
             <div>
-              <label className="font-semibold text-slate-700 block mb-1">Manager Full Name *</label>
+              <label className="font-semibold text-slate-700 block mb-1">Full Name *</label>
               <Input
                 required
                 placeholder="e.g. Rahul Kumar"
-                value={mgrName}
-                onChange={(e) => setMgrName(e.target.value)}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
               />
             </div>
+
             <div>
               <label className="font-semibold text-slate-700 block mb-1">Work Email *</label>
               <Input
                 required
                 type="email"
-                placeholder="e.g. rahul@agency.com"
-                value={mgrEmail}
-                onChange={(e) => setMgrEmail(e.target.value)}
+                placeholder="e.g. rahul@apexagency.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
             </div>
 
+            {roleToCreate === "EMPLOYEE" && managersList.length > 0 && (
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Assign Reporting Manager</label>
+                <select
+                  value={managerId}
+                  onChange={(e) => setManagerId(e.target.value)}
+                  className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2 bg-white dark:bg-slate-950"
+                >
+                  <option value="">-- Select Manager --</option>
+                  {managersList.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setIsAddManagerOpen(false)}>Cancel</Button>
-              <Button type="submit" className="bg-purple-600 hover:bg-purple-700 text-white font-semibold">
-                Create Manager
+              <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+              <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
+                Generate & Dispatch Credentials
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* CREATE EMPLOYEE MODAL */}
-      <Dialog open={isAddEmployeeOpen} onOpenChange={setIsAddEmployeeOpen}>
+      {/* 2. POST-CREATION CREDENTIAL RECEIPT MODAL */}
+      <Dialog open={credentialModalOpen} onOpenChange={setCredentialModalOpen}>
         <DialogContent className="max-w-md bg-white dark:bg-slate-900">
           <DialogHeader>
-            <DialogTitle className="text-base font-bold">Create Employee / Sales Rep</DialogTitle>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-emerald-600">
+              <CheckCircle2 className="h-5 w-5" />
+              <span>User Created & Credentials Sent!</span>
+            </DialogTitle>
             <DialogDescription className="text-xs">
-              Employees work directly with assigned leads, create templates, and run outreach campaigns.
+              An onboarding email has been dispatched. You can also copy credentials directly below.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleAddEmployee} className="space-y-3 pt-2 text-xs">
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1">Employee Full Name *</label>
-              <Input
-                required
-                placeholder="e.g. Amit Sharma or Neha Gupta"
-                value={empName}
-                onChange={(e) => setEmpName(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1">Work Email *</label>
-              <Input
-                required
-                type="email"
-                placeholder="e.g. amit@agency.com"
-                value={empEmail}
-                onChange={(e) => setEmpEmail(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="font-semibold text-slate-700 block mb-1">Assign to Manager (Optional)</label>
-              <select
-                value={empManagerId}
-                onChange={(e) => setEmpManagerId(e.target.value)}
-                className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white"
-              >
-                <option value="">-- No Manager Assigned --</option>
-                {managers.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {createdInfo && organization && (
+            <div className="space-y-3 pt-2 text-xs">
+              <div className="p-3.5 bg-slate-950 text-slate-200 rounded-xl font-mono space-y-1.5 border border-slate-800">
+                <p className="text-indigo-400 font-bold">FlowDesk AI Login Credentials:</p>
+                <p>Agency ID: <strong className="text-white">{organization.joinCode}</strong></p>
+                <p>Work Email: <strong className="text-white">{createdInfo.user.email}</strong></p>
+                <p>Role: <strong className="text-purple-400">{createdInfo.user.role}</strong></p>
+                <p>Temp Password: <strong className="text-emerald-400">{createdInfo.tempPassword}</strong></p>
+              </div>
 
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setIsAddEmployeeOpen(false)}>Cancel</Button>
-              <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
-                Create Employee
+              <Button
+                onClick={copyCredentials}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5"
+              >
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                <span>{copied ? "Copied to Clipboard!" : "Copy Full Invitation Details"}</span>
               </Button>
-            </DialogFooter>
-          </form>
+
+              <DialogFooter className="pt-1">
+                <Button variant="outline" size="sm" onClick={() => setCredentialModalOpen(false)}>
+                  Done
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -22,9 +22,11 @@ import {
   Plus,
   UploadCloud,
   RotateCcw,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useFlowDesk } from "@/lib/store";
+import { ProfileSettingsModal } from "@/components/auth/ProfileSettingsModal";
 
 interface SidebarProps {
   isMobileOpen?: boolean;
@@ -44,6 +46,8 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
     logout,
     resetAll,
   } = useFlowDesk();
+
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   if (!currentUser || !organization) return null;
 
@@ -254,13 +258,17 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
           )}
         </div>
 
-        {/* User Footer Profile & Role */}
+        {/* User Footer Profile & Role (IMMUTABLE ROLE) */}
         <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between dark:border-slate-800 dark:bg-slate-900/50">
-          <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={() => setIsProfileModalOpen(true)}
+            className="flex items-center gap-2 min-w-0 text-left hover:opacity-80 cursor-pointer"
+            title="Click to edit profile & change password"
+          >
             <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white font-bold text-xs flex items-center justify-center shrink-0">
               {currentUser.name.slice(0, 2).toUpperCase()}
             </div>
-            <div className="text-left min-w-0">
+            <div className="min-w-0">
               <p className="text-xs font-semibold text-slate-900 leading-tight truncate dark:text-white">
                 {currentUser.name}
               </p>
@@ -268,9 +276,16 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
                 {currentUser.role} {currentUser.managerName ? `• Mgr: ${currentUser.managerName}` : ""}
               </p>
             </div>
-          </div>
+          </button>
 
           <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setIsProfileModalOpen(true)}
+              title="Profile & Security Settings"
+              className="p-1 text-slate-400 hover:text-indigo-600 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <Settings className="h-3.5 w-3.5" />
+            </button>
             <button
               onClick={logout}
               title="Sign Out"
@@ -288,6 +303,12 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
           </div>
         </div>
       </aside>
+
+      {/* Profile & Security Modal */}
+      <ProfileSettingsModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
     </>
   );
 }

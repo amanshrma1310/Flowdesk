@@ -6,6 +6,7 @@ import {
   User,
   UserRole,
   UserPermissions,
+  SentEmailLog,
   Lead,
   LeadStatus,
   LeadFolder,
@@ -33,20 +34,23 @@ interface FlowDeskStoreContextType {
   workflows: Workflow[];
   forms: LeadForm[];
   responses: LeadResponse[];
+  sentEmailLogs: SentEmailLog[];
   smtpSettings: SMTPSettings;
   whatsAppSettings: WhatsAppAPISettings;
 
   // Auth & Agency Operations
-  createAgency: (data: { agencyName: string; adminName: string; adminEmail: string }) => Promise<Organization>;
-  joinAgency: (data: { joinCode: string; name: string; email: string; role: "MANAGER" | "EMPLOYEE"; managerId?: string }) => Promise<{ success: boolean; message: string }>;
-  login: (email: string) => { success: boolean; message: string };
+  createAgency: (data: { agencyName: string; adminName: string; adminEmail: string; adminPassword?: string }) => Promise<Organization>;
+  login: (data: { agencyId: string; email: string; password?: string }) => Promise<{ success: boolean; message: string; isFirstLogin?: boolean }>;
   logout: () => void;
   switchUser: (userId: string) => void;
   resetAll: () => void;
 
-  // User & Team Management
-  createManager: (data: { name: string; email: string }) => User;
-  createEmployee: (data: { name: string; email: string; managerId?: string }) => User;
+  // Profile & Password Management (Role is IMMUTABLE)
+  updateUserProfile: (userId: string, data: { name?: string; phone?: string; password?: string }) => { success: boolean; message: string };
+
+  // User & Team Management (Admin Only)
+  createManager: (data: { name: string; email: string }) => { user: User; tempPassword: string; emailLog: SentEmailLog };
+  createEmployee: (data: { name: string; email: string; managerId?: string }) => { user: User; tempPassword: string; emailLog: SentEmailLog };
   assignEmployeeToManager: (employeeId: string, managerId: string) => void;
   toggleUserActive: (userId: string) => void;
   updateUserPermissions: (userId: string, perms: Partial<UserPermissions>) => void;
@@ -111,6 +115,15 @@ const DEFAULT_WHATSAPP: WhatsAppAPISettings = {
   isConfigured: false,
 };
 
+function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let pwd = "Flow#";
+  for (let i = 0; i < 4; i++) {
+    pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return pwd;
+}
+
 export function FlowDeskStoreProvider({ children }: { children: React.ReactNode }) {
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -122,6 +135,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [forms, setForms] = useState<LeadForm[]>([]);
   const [responses, setResponses] = useState<LeadResponse[]>([]);
+  const [sentEmailLogs, setSentEmailLogs] = useState<SentEmailLog[]>([]);
   const [smtpSettings, setSmtpSettings] = useState<SMTPSettings>(DEFAULT_SMTP);
   const [whatsAppSettings, setWhatsAppSettings] = useState<WhatsAppAPISettings>(DEFAULT_WHATSAPP);
 
@@ -138,6 +152,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       const savedWorkflows = localStorage.getItem("fd_marketing_workflows");
       const savedForms = localStorage.getItem("fd_marketing_forms");
       const savedResponses = localStorage.getItem("fd_marketing_responses");
+      const savedEmails = localStorage.getItem("fd_marketing_email_logs");
       const savedSmtp = localStorage.getItem("fd_marketing_smtp");
       const savedWa = localStorage.getItem("fd_marketing_wa");
 
@@ -151,6 +166,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       if (savedWorkflows) setWorkflows(JSON.parse(savedWorkflows));
       if (savedForms) setForms(JSON.parse(savedForms));
       if (savedResponses) setResponses(JSON.parse(savedResponses));
+      if (savedEmails) setSentEmailLogs(JSON.parse(savedEmails));
       if (savedSmtp) setSmtpSettings(JSON.parse(savedSmtp));
       if (savedWa) setWhatsAppSettings(JSON.parse(savedWa));
     } catch (err) {
@@ -169,6 +185,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     wList: Workflow[],
     frmList: LeadForm[],
     rList: LeadResponse[],
+    eLogs: SentEmailLog[],
     smtp: SMTPSettings,
     wa: WhatsAppAPISettings
   ) => {
@@ -184,6 +201,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         localStorage.setItem("fd_marketing_workflows", JSON.stringify(wList));
         localStorage.setItem("fd_marketing_forms", JSON.stringify(frmList));
         localStorage.setItem("fd_marketing_responses", JSON.stringify(rList));
+        localStorage.setItem("fd_marketing_email_logs", JSON.stringify(eLogs));
         localStorage.setItem("fd_marketing_smtp", JSON.stringify(smtp));
         localStorage.setItem("fd_marketing_wa", JSON.stringify(wa));
 
@@ -233,10 +251,12 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     agencyName,
     adminName,
     adminEmail,
+    adminPassword,
   }: {
     agencyName: string;
     adminName: string;
     adminEmail: string;
+    adminPassword?: string;
   }): Promise<Organization> => {
     const orgId = `org-${Date.now()}`;
     const code = `${agencyName.slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -246,8 +266,11 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       id: adminId,
       name: adminName.trim(),
       email: adminEmail.trim().toLowerCase(),
+      password: adminPassword || "admin123",
+      isFirstLogin: false,
       role: "ADMIN",
       agencyId: orgId,
+      agencyJoinCode: code,
       isActive: true,
       createdAt: new Date().toISOString(),
     };
@@ -353,6 +376,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     setWorkflows([starterWorkflow]);
     setForms([starterForm]);
     setResponses([]);
+    setSentEmailLogs([]);
 
     persist(
       newOrg,
@@ -365,6 +389,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       [starterWorkflow],
       [starterForm],
       [],
+      [],
       smtpSettings,
       whatsAppSettings
     );
@@ -372,22 +397,19 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     return newOrg;
   };
 
-  // Join Agency (Manager or Employee) with cross-tab / incognito server fallback
-  const joinAgency = async ({
-    joinCode,
-    name,
+  // Sign In using Agency ID, Work Email, and Password
+  const login = async ({
+    agencyId,
     email,
-    role,
-    managerId,
+    password,
   }: {
-    joinCode: string;
-    name: string;
+    agencyId: string;
     email: string;
-    role: "MANAGER" | "EMPLOYEE";
-    managerId?: string;
-  }): Promise<{ success: boolean; message: string }> => {
+    password?: string;
+  }): Promise<{ success: boolean; message: string; isFirstLogin?: boolean }> => {
     let targetOrg = organization;
 
+    // Check localStorage fallback
     if (!targetOrg && typeof window !== "undefined") {
       const saved = localStorage.getItem("fd_marketing_org");
       if (saved) {
@@ -397,8 +419,9 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       }
     }
 
-    const cleanInputCode = joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    const cleanInputCode = agencyId.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 
+    // If local agency doesn't match, look up global server API
     if (!targetOrg || targetOrg.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() !== cleanInputCode) {
       try {
         const res = await fetch(`/api/v1/agencies?joinCode=${cleanInputCode}`);
@@ -409,91 +432,51 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
           }
         }
       } catch (err) {
-        console.warn("API join lookup failed:", err);
+        console.warn("API agency lookup failed:", err);
       }
     }
 
     if (!targetOrg) {
       return {
         success: false,
-        message: `No active agency found with Join Code "${joinCode}". Please create an agency first or check the code with your Admin.`,
+        message: `Agency ID "${agencyId}" not found. Please verify the Agency ID provided in your onboarding email.`,
       };
     }
 
-    const cleanOrgCode = targetOrg.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-    if (cleanInputCode !== cleanOrgCode) {
+    const currentUsers = (targetOrg as any).users || users;
+    const cleanEmail = email.trim().toLowerCase();
+    const user = currentUsers.find((u: User) => u.email.toLowerCase() === cleanEmail);
+
+    if (!user) {
       return {
         success: false,
-        message: `Invalid Agency Join Code. The active code for ${targetOrg.name} is "${targetOrg.joinCode}".`,
+        message: `No account found for "${email}" in ${targetOrg.name}. Please contact your Main Admin.`,
       };
     }
 
-    const assignedManager = (targetOrg as any).users?.find((u: any) => u.id === managerId) || users.find((u) => u.id === managerId);
+    if (!user.isActive) {
+      return {
+        success: false,
+        message: "This account has been deactivated by the Main Admin.",
+      };
+    }
 
-    const newUser: User = {
-      id: `usr-${role.toLowerCase()}-${Date.now()}`,
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      role,
-      agencyId: targetOrg.id,
-      managerId: role === "EMPLOYEE" ? managerId : undefined,
-      managerName: role === "EMPLOYEE" ? assignedManager?.name : undefined,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      permissions: {
-        addLeads: true,
-        importLeads: true,
-        emailMarketing: true,
-        whatsAppMarketing: true,
-        createTemplates: true,
-        createWorkflows: true,
-      },
-    };
-
-    const existingUsers = (targetOrg as any).users || users;
-    const updatedUsers = [...existingUsers.filter((u: any) => u.email.toLowerCase() !== newUser.email), newUser];
-    const updatedTemplates = (targetOrg as any).templates || templates;
-    const updatedWorkflows = (targetOrg as any).workflows || workflows;
-    const updatedForms = (targetOrg as any).forms || forms;
+    // Password verification
+    if (password && user.password && user.password !== password && user.temporaryPassword !== password) {
+      return {
+        success: false,
+        message: "Incorrect password. If this is your first login, use the temporary password from your onboarding email.",
+      };
+    }
 
     setOrganization(targetOrg);
-    setUsers(updatedUsers);
-    setCurrentUser(newUser);
-    if (templates.length === 0 && updatedTemplates.length > 0) setTemplates(updatedTemplates);
-    if (workflows.length === 0 && updatedWorkflows.length > 0) setWorkflows(updatedWorkflows);
-    if (forms.length === 0 && updatedForms.length > 0) setForms(updatedForms);
+    setUsers(currentUsers);
+    setCurrentUser(user);
 
     persist(
       targetOrg,
-      newUser,
-      updatedUsers,
-      leads,
-      folders,
-      updatedTemplates,
-      campaigns,
-      updatedWorkflows,
-      updatedForms,
-      responses,
-      smtpSettings,
-      whatsAppSettings
-    );
-
-    return { success: true, message: `Successfully joined ${targetOrg.name} as ${role}!` };
-  };
-
-  const login = (email: string): { success: boolean; message: string } => {
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (!user) {
-      return { success: false, message: "User not found with this email." };
-    }
-    if (!user.isActive) {
-      return { success: false, message: "This user account has been deactivated by the Admin." };
-    }
-    setCurrentUser(user);
-    persist(
-      organization,
       user,
-      users,
+      currentUsers,
       leads,
       folders,
       templates,
@@ -501,10 +484,16 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       workflows,
       forms,
       responses,
+      sentEmailLogs,
       smtpSettings,
       whatsAppSettings
     );
-    return { success: true, message: `Welcome back, ${user.name}!` };
+
+    return {
+      success: true,
+      message: `Welcome back, ${user.name}!`,
+      isFirstLogin: user.isFirstLogin || !!user.temporaryPassword,
+    };
   };
 
   const logout = () => {
@@ -526,6 +515,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         workflows,
         forms,
         responses,
+        sentEmailLogs,
         smtpSettings,
         whatsAppSettings
       );
@@ -543,36 +533,129 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     setWorkflows([]);
     setForms([]);
     setResponses([]);
+    setSentEmailLogs([]);
     localStorage.clear();
   };
 
-  // User Management
-  const createManager = (data: { name: string; email: string }): User => {
+  // User Profile & Password Update (ROLE IS IMMUTABLE)
+  const updateUserProfile = (
+    userId: string,
+    data: { name?: string; phone?: string; password?: string }
+  ): { success: boolean; message: string } => {
+    const target = users.find((u) => u.id === userId);
+    if (!target) return { success: false, message: "User not found." };
+
+    const updatedUser: User = {
+      ...target,
+      name: data.name?.trim() || target.name,
+      phone: data.phone?.trim() || target.phone,
+      password: data.password || target.password,
+      temporaryPassword: undefined, // Cleared after setting permanent password
+      isFirstLogin: false,
+      // NOTE: target.role IS PRESERVED AND CANNOT BE ALTERED BY USER
+    };
+
+    const updatedUsers = users.map((u) => (u.id === userId ? updatedUser : u));
+    setUsers(updatedUsers);
+    if (currentUser?.id === userId) {
+      setCurrentUser(updatedUser);
+    }
+
+    persist(
+      organization,
+      currentUser?.id === userId ? updatedUser : currentUser,
+      updatedUsers,
+      leads,
+      folders,
+      templates,
+      campaigns,
+      workflows,
+      forms,
+      responses,
+      sentEmailLogs,
+      smtpSettings,
+      whatsAppSettings
+    );
+
+    return { success: true, message: "Profile & credentials updated successfully!" };
+  };
+
+  // User Management (Admin creates user ➔ sends email with Agency ID and first-time password)
+  const createManager = (data: { name: string; email: string }): { user: User; tempPassword: string; emailLog: SentEmailLog } => {
     if (!organization) throw new Error("No active agency");
+    const tempPassword = generateTempPassword();
+    const cleanEmail = data.email.trim().toLowerCase();
+
     const newMgr: User = {
       id: `usr-mgr-${Date.now()}`,
       name: data.name.trim(),
-      email: data.email.trim().toLowerCase(),
+      email: cleanEmail,
+      password: tempPassword,
+      temporaryPassword: tempPassword,
+      isFirstLogin: true,
       role: "MANAGER",
       agencyId: organization.id,
+      agencyJoinCode: organization.joinCode,
       isActive: true,
       createdAt: new Date().toISOString(),
     };
-    const updatedUsers = [...users, newMgr];
+
+    const emailLog: SentEmailLog = {
+      id: `email-${Date.now()}`,
+      toEmail: cleanEmail,
+      toName: data.name.trim(),
+      subject: `Welcome to ${organization.name} — Your FlowDesk Login Credentials`,
+      body: `Hello ${data.name.trim()},\n\nYou have been added as Pod Manager to ${organization.name}.\n\nHere are your login credentials:\n• Agency ID: ${organization.joinCode}\n• Work Email: ${cleanEmail}\n• Temporary Password: ${tempPassword}\n\nPlease sign in and set your permanent password.\n\nBest regards,\n${organization.name} Admin Team`,
+      agencyId: organization.joinCode,
+      temporaryPassword: tempPassword,
+      sentAt: new Date().toLocaleString(),
+    };
+
+    const updatedUsers = [...users.filter((u) => u.email.toLowerCase() !== cleanEmail), newMgr];
+    const updatedLogs = [emailLog, ...sentEmailLogs];
+
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
-    return newMgr;
+    setSentEmailLogs(updatedLogs);
+
+    persist(
+      organization,
+      currentUser,
+      updatedUsers,
+      leads,
+      folders,
+      templates,
+      campaigns,
+      workflows,
+      forms,
+      responses,
+      updatedLogs,
+      smtpSettings,
+      whatsAppSettings
+    );
+
+    return { user: newMgr, tempPassword, emailLog };
   };
 
-  const createEmployee = (data: { name: string; email: string; managerId?: string }): User => {
+  const createEmployee = (data: {
+    name: string;
+    email: string;
+    managerId?: string;
+  }): { user: User; tempPassword: string; emailLog: SentEmailLog } => {
     if (!organization) throw new Error("No active agency");
     const mgr = users.find((u) => u.id === data.managerId);
+    const tempPassword = generateTempPassword();
+    const cleanEmail = data.email.trim().toLowerCase();
+
     const newEmp: User = {
       id: `usr-emp-${Date.now()}`,
       name: data.name.trim(),
-      email: data.email.trim().toLowerCase(),
+      email: cleanEmail,
+      password: tempPassword,
+      temporaryPassword: tempPassword,
+      isFirstLogin: true,
       role: "EMPLOYEE",
       agencyId: organization.id,
+      agencyJoinCode: organization.joinCode,
       managerId: data.managerId,
       managerName: mgr?.name,
       isActive: true,
@@ -586,10 +669,41 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         createWorkflows: true,
       },
     };
-    const updatedUsers = [...users, newEmp];
+
+    const emailLog: SentEmailLog = {
+      id: `email-${Date.now()}`,
+      toEmail: cleanEmail,
+      toName: data.name.trim(),
+      subject: `Welcome to ${organization.name} — Your FlowDesk Login Credentials`,
+      body: `Hello ${data.name.trim()},\n\nYou have been added as Marketing Representative to ${organization.name}.${mgr ? ` Your reporting manager is ${mgr.name}.` : ""}\n\nHere are your login credentials:\n• Agency ID: ${organization.joinCode}\n• Work Email: ${cleanEmail}\n• Temporary Password: ${tempPassword}\n\nPlease sign in and set your permanent password.\n\nBest regards,\n${organization.name} Admin Team`,
+      agencyId: organization.joinCode,
+      temporaryPassword: tempPassword,
+      sentAt: new Date().toLocaleString(),
+    };
+
+    const updatedUsers = [...users.filter((u) => u.email.toLowerCase() !== cleanEmail), newEmp];
+    const updatedLogs = [emailLog, ...sentEmailLogs];
+
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
-    return newEmp;
+    setSentEmailLogs(updatedLogs);
+
+    persist(
+      organization,
+      currentUser,
+      updatedUsers,
+      leads,
+      folders,
+      templates,
+      campaigns,
+      workflows,
+      forms,
+      responses,
+      updatedLogs,
+      smtpSettings,
+      whatsAppSettings
+    );
+
+    return { user: newEmp, tempPassword, emailLog };
   };
 
   const assignEmployeeToManager = (employeeId: string, managerId: string) => {
@@ -598,7 +712,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       u.id === employeeId ? { ...u, managerId, managerName: mgr?.name } : u
     );
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   const toggleUserActive = (userId: string) => {
@@ -606,7 +720,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       u.id === userId ? { ...u, isActive: !u.isActive } : u
     );
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   const updateUserPermissions = (userId: string, perms: Partial<UserPermissions>) => {
@@ -614,7 +728,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       u.id === userId ? { ...u, permissions: { ...(u.permissions || {}), ...perms } } : u
     );
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   // Lead Activity Helper
@@ -686,7 +800,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       );
     }
 
-    persist(organization, currentUser, users, updatedLeads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, updatedLeads, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
     return newLead;
   };
 
@@ -755,7 +869,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     setLeads(updatedLeads);
     setFolders(updatedFolders);
 
-    persist(organization, currentUser, users, updatedLeads, updatedFolders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, updatedLeads, updatedFolders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
     return { importedCount: newLeads.length, folderId };
   };
 
@@ -774,7 +888,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         }
         return l;
       });
-      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
       return updated;
     });
   };
@@ -782,7 +896,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   const deleteLead = (leadId: string) => {
     setLeads((prev) => {
       const updated = prev.filter((l) => l.id !== leadId);
-      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
       return updated;
     });
   };
@@ -837,7 +951,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     };
     const updated = [newFolder, ...folders];
     setFolders(updated);
-    persist(organization, currentUser, users, leads, updated, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, updated, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
     return newFolder;
   };
 
@@ -857,20 +971,20 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     };
     const updated = [newTpl, ...templates];
     setTemplates(updated);
-    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
     return newTpl;
   };
 
   const updateTemplate = (id: string, data: Partial<MarketingTemplate>) => {
     const updated = templates.map((t) => (t.id === id ? { ...t, ...data } : t));
     setTemplates(updated);
-    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   const deleteTemplate = (id: string) => {
     const updated = templates.filter((t) => t.id !== id);
     setTemplates(updated);
-    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   // Campaigns CRUD
@@ -905,14 +1019,14 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
 
     const updated = [newCampaign, ...campaigns];
     setCampaigns(updated);
-    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
     return newCampaign;
   };
 
   const updateCampaignStatus = (campaignId: string, status: Campaign["status"]) => {
     const updated = campaigns.map((c) => (c.id === campaignId ? { ...c, status } : c));
     setCampaigns(updated);
-    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   // Workflows CRUD
@@ -936,29 +1050,29 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     };
     const updated = [newWf, ...workflows];
     setWorkflows(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
     return newWf;
   };
 
   const updateWorkflow = (id: string, data: Partial<Workflow>) => {
     const updated = workflows.map((w) => (w.id === id ? { ...w, ...data } : w));
     setWorkflows(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   const deleteWorkflow = (id: string) => {
     const updated = workflows.filter((w) => w.id !== id);
     setWorkflows(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   const toggleWorkflowActive = (workflowId: string) => {
     const updated = workflows.map((w) => (w.id === workflowId ? { ...w, isActive: !w.isActive } : w));
     setWorkflows(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
-  // Lead Forms CRUD (Lead Capture Webhook & Embeds)
+  // Lead Forms CRUD
   const createForm = (data: Omit<LeadForm, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "submissionCount">): LeadForm => {
     if (!organization || !currentUser) throw new Error("Unauthenticated");
     const targetFolder = folders.find((f) => f.id === data.folderId);
@@ -989,20 +1103,20 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
 
     const updated = [newForm, ...forms];
     setForms(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, updated, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, updated, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
     return newForm;
   };
 
   const updateForm = (id: string, data: Partial<LeadForm>) => {
     const updated = forms.map((f) => (f.id === id ? { ...f, ...data } : f));
     setForms(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, updated, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, updated, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   const deleteForm = (id: string) => {
     const updated = forms.filter((f) => f.id !== id);
     setForms(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, updated, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, updated, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
   };
 
   // Direct Submission Handler from Web Embeds / Public URL
@@ -1018,7 +1132,6 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     const assignedUser = users.find((u) => u.id === targetForm.assignedEmployeeId) || users[0];
     const newLeadId = `lead-${Date.now()}`;
 
-    // Extract core fields and bundle any extra custom fields
     const leadName = submission.name || submission.fullName || submission["Full Name"] || "Web Prospect";
     const leadPhone = submission.phone || submission.whatsApp || submission["Phone Number"] || submission["WhatsApp Number"] || "";
     const leadEmail = submission.email || submission.workEmail || submission["Email Address"] || "";
@@ -1071,7 +1184,6 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       activities: [initialActivity],
     };
 
-    // Auto-enroll in workflow if configured on form
     if (targetForm.workflowId) {
       newLead.activeWorkflowId = targetForm.workflowId;
       newLead.activeWorkflowName = targetForm.workflowName;
@@ -1102,6 +1214,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       workflows,
       updatedForms,
       responses,
+      sentEmailLogs,
       smtpSettings,
       whatsAppSettings
     );
@@ -1158,13 +1271,13 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   const saveSMTPSettings = (settings: Partial<SMTPSettings>) => {
     const updated = { ...smtpSettings, ...settings, isConfigured: true };
     setSmtpSettings(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, forms, responses, updated, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, updated, whatsAppSettings);
   };
 
   const saveWhatsAppSettings = (settings: Partial<WhatsAppAPISettings>) => {
     const updated = { ...whatsAppSettings, ...settings, isConfigured: true };
     setWhatsAppSettings(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, updated);
   };
 
   return (
@@ -1181,14 +1294,15 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         workflows,
         forms,
         responses,
+        sentEmailLogs,
         smtpSettings,
         whatsAppSettings,
         createAgency,
-        joinAgency,
         login,
         logout,
         switchUser,
         resetAll,
+        updateUserProfile,
         createManager,
         createEmployee,
         assignEmployeeToManager,
