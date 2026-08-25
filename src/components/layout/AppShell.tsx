@@ -1,16 +1,27 @@
 "use client";
 
 import React, { useState } from "react";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { useFlowDesk } from "@/lib/store";
 import { AdminOnboardingModal } from "@/components/auth/AdminOnboardingModal";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { currentUser, organization } = useFlowDesk();
 
-  // If no user is signed in or no agency exists, display the clean Create / Join Agency portal
+  // PUBLIC ROUTES: Public web forms and API endpoints must never be blocked by the admin login modal
+  const isPublicRoute =
+    pathname?.startsWith("/forms/public") ||
+    pathname?.startsWith("/api");
+
+  if (isPublicRoute) {
+    return <main className="min-h-screen w-full bg-slate-950">{children}</main>;
+  }
+
+  // If no user is signed in or no agency exists, display the clean Sign In / Create Agency portal
   if (!currentUser || !organization) {
     return <AdminOnboardingModal />;
   }

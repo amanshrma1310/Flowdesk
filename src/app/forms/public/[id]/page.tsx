@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, use } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Sparkles,
   CheckCircle2,
@@ -13,6 +14,7 @@ import {
   MessageSquare,
   ChevronDown,
   Hash,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,44 +24,67 @@ import { LeadForm } from "@/lib/types";
 export default function PublicFormPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const formId = resolvedParams.id;
+  const searchParams = useSearchParams();
+  const isSubmittedFromUrl = searchParams.get("submitted") === "true";
+
   const { forms, submitLeadForm, organization } = useFlowDesk();
 
   const [targetForm, setTargetForm] = useState<LeadForm | null>(null);
-
-  // Dynamic Form Values
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(isSubmittedFromUrl);
   const [responseMsg, setResponseMsg] = useState("");
   const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
+    // 1. Try local state
     const found = forms.find((f) => f.id === formId);
     if (found) {
       setTargetForm(found);
-    } else {
-      // Fallback starter form
-      setTargetForm({
-        id: formId,
-        agencyId: organization?.id || "org-1",
-        title: "Website Consultation & Inquiry Form",
-        description: "Submit your details below to request a personalized quote and consultation.",
-        submitButtonText: "Submit Inquiry",
-        successMessage: "Thank you! Our marketing team has received your request and will contact you via WhatsApp / Email shortly.",
-        fields: [
-          { id: "f-name", label: "Full Name", name: "name", type: "text", required: true, placeholder: "John Doe" },
-          { id: "f-phone", label: "WhatsApp / Phone Number", name: "phone", type: "tel", required: true, placeholder: "+91 98765 43210" },
-          { id: "f-email", label: "Work Email", name: "email", type: "email", required: true, placeholder: "john@company.com" },
-          { id: "f-comp", label: "Company Name", name: "company", type: "text", required: false, placeholder: "Acme Corp" },
-          { id: "f-notes", label: "Project Details / Notes", name: "notes", type: "textarea", required: false, placeholder: "How can we help your business?" },
-        ],
-        submissionCount: 0,
-        isActive: true,
-        createdById: "admin",
-        createdByName: "Admin",
-        createdAt: new Date().toLocaleDateString(),
-      });
+      return;
     }
+
+    // 2. Try fetching from server API for cross-domain / iframe availability
+    fetch(`/api/v1/agencies`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.agencies && Array.isArray(data.agencies)) {
+          for (const agency of data.agencies) {
+            const formMatch = agency.forms?.find((f: LeadForm) => f.id === formId);
+            if (formMatch) {
+              setTargetForm(formMatch);
+              return;
+            }
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        // 3. Fallback default form if not found
+        setTargetForm((current) => {
+          if (current) return current;
+          return {
+            id: formId,
+            agencyId: organization?.id || "org-1",
+            title: "Website Consultation & Inquiry Form",
+            description: "Submit your details below to request a personalized quote and consultation.",
+            submitButtonText: "Submit Inquiry",
+            successMessage: "Thank you! Our marketing team has received your inquiry and will contact you shortly.",
+            fields: [
+              { id: "f-name", label: "Full Name", name: "name", type: "text", required: true, placeholder: "John Doe" },
+              { id: "f-phone", label: "WhatsApp / Phone Number", name: "phone", type: "tel", required: true, placeholder: "+91 98765 43210" },
+              { id: "f-email", label: "Work Email", name: "email", type: "email", required: true, placeholder: "john@company.com" },
+              { id: "f-comp", label: "Company Name", name: "company", type: "text", required: false, placeholder: "Acme Corp" },
+              { id: "f-notes", label: "Project Details / Notes", name: "notes", type: "textarea", required: false, placeholder: "How can we help your business?" },
+            ],
+            submissionCount: 0,
+            isActive: true,
+            createdById: "admin",
+            createdByName: "Admin",
+            createdAt: new Date().toLocaleDateString(),
+          };
+        });
+      });
   }, [formId, forms, organization]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -74,21 +99,28 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
     setIsSubmitting(false);
 
     if (res.success) {
-      if (res.redirectUrl || targetForm?.redirectUrl) {
-        const targetUrl = res.redirectUrl || targetForm?.redirectUrl;
+      const destinationUrl = res.redirectUrl || targetForm?.redirectUrl;
+
+      // Only redirect if a custom external redirect URL was explicitly configured
+      if (destinationUrl && destinationUrl.startsWith("http")) {
         setRedirecting(true);
         setSubmitted(true);
-        setResponseMsg(`Redirecting to welcome page...`);
+        setResponseMsg(`Thank you! Redirecting to welcome page...`);
         setTimeout(() => {
-          if (targetUrl) {
-            window.location.href = targetUrl;
-          }
-        }, 1200);
+          window.location.href = destinationUrl;
+        }, 1000);
       } else {
+        // Stay on page and display custom Thank You confirmation message
         setSubmitted(true);
         setResponseMsg(res.message || targetForm?.successMessage || "Thank you! Your submission was received.");
       }
     }
+  };
+
+  const handleResetForm = () => {
+    setSubmitted(false);
+    setFormData({});
+    setResponseMsg("");
   };
 
   if (!targetForm) {
@@ -103,16 +135,16 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 sm:p-6 text-white selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen w-full bg-slate-950 flex items-center justify-center p-3 sm:p-6 text-white selection:bg-indigo-500 selection:text-white">
       {/* Background Ambience */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl" />
       </div>
 
-      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 space-y-6 animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-lg bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-2xl shadow-2xl p-5 sm:p-7 space-y-5 animate-in fade-in zoom-in-95 duration-200">
         {/* Form Header */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-1.5">
           <div className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 shadow-md shadow-indigo-600/30 text-white mb-1">
             <Sparkles className="h-5 w-5" />
           </div>
@@ -122,21 +154,40 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
           )}
         </div>
 
+        {/* THANK YOU / CONFIRMATION VIEW */}
         {submitted ? (
-          <div className="p-6 bg-emerald-950/60 border border-emerald-800 text-emerald-200 rounded-xl text-center space-y-3 animate-in zoom-in-95 duration-200">
-            <div className="h-12 w-12 rounded-full bg-emerald-600/20 text-emerald-400 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="h-6 w-6" />
+          <div className="p-6 sm:p-8 bg-emerald-950/60 border border-emerald-800 text-emerald-200 rounded-xl text-center space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="h-14 w-14 rounded-full bg-emerald-600/20 text-emerald-400 flex items-center justify-center mx-auto ring-8 ring-emerald-950/40">
+              <CheckCircle2 className="h-8 w-8" />
             </div>
-            <h3 className="font-bold text-sm text-white">
-              {redirecting ? "Redirecting..." : "Inquiry Submitted!"}
-            </h3>
-            <p className="text-xs text-emerald-300/90 leading-relaxed">{responseMsg}</p>
+            <div className="space-y-1.5">
+              <h3 className="font-bold text-base text-white">
+                {redirecting ? "Redirecting..." : "Inquiry Submitted Successfully!"}
+              </h3>
+              <p className="text-xs text-emerald-300/90 leading-relaxed max-w-sm mx-auto">
+                {responseMsg || targetForm.successMessage || "Thank you! We have received your request and our team will contact you shortly."}
+              </p>
+            </div>
+
+            {!redirecting && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleResetForm}
+                className="mt-2 text-xs border-emerald-700 text-emerald-300 hover:bg-emerald-900/50 gap-1.5"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Submit Another Request</span>
+              </Button>
+            )}
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          /* LIVE LEAD CAPTURE FORM */
+          <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
             {targetForm.fields.map((field) => (
               <div key={field.id}>
-                <label className="font-semibold text-slate-300 block mb-1">
+                <label className="font-semibold text-slate-300 block mb-1 text-[11px]">
                   {field.label} {field.required && <span className="text-indigo-400">*</span>}
                 </label>
 
@@ -159,7 +210,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
                       onChange={(e) =>
                         setFormData({ ...formData, [field.name]: e.target.value })
                       }
-                      className="w-full h-9 rounded-lg border border-slate-800 bg-slate-950 text-slate-100 px-3 text-xs focus:ring-2 focus:ring-indigo-500 appearance-none"
+                      className="w-full h-9 rounded-lg border border-slate-800 bg-slate-950 text-slate-100 px-3 text-xs focus:ring-2 focus:ring-indigo-500 appearance-none cursor-pointer"
                     >
                       <option value="">-- Select {field.label} --</option>
                       {field.options.map((opt, i) => (
@@ -204,7 +255,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs py-2.5 shadow-lg shadow-indigo-600/30 gap-1.5 cursor-pointer mt-2"
+              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs py-2.5 shadow-lg shadow-indigo-600/30 gap-1.5 cursor-pointer mt-1"
             >
               {isSubmitting ? (
                 <span>Submitting...</span>
@@ -216,7 +267,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
               )}
             </Button>
 
-            <p className="text-[10px] text-center text-slate-500 pt-1">
+            <p className="text-[10px] text-center text-slate-500 pt-0.5">
               Protected by FlowDesk AI Lead Intelligence.
             </p>
           </form>
