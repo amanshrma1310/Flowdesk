@@ -13,6 +13,8 @@ import {
   Campaign,
   Workflow,
   WorkflowStep,
+  LeadForm,
+  LeadFormField,
   LeadResponse,
   SMTPSettings,
   WhatsAppAPISettings,
@@ -29,6 +31,7 @@ interface FlowDeskStoreContextType {
   templates: MarketingTemplate[];
   campaigns: Campaign[];
   workflows: Workflow[];
+  forms: LeadForm[];
   responses: LeadResponse[];
   smtpSettings: SMTPSettings;
   whatsAppSettings: WhatsAppAPISettings;
@@ -69,6 +72,12 @@ interface FlowDeskStoreContextType {
   updateWorkflow: (id: string, data: Partial<Workflow>) => void;
   deleteWorkflow: (id: string) => void;
   toggleWorkflowActive: (workflowId: string) => void;
+
+  // Lead Forms (Web Embed & Lead Capture)
+  createForm: (data: Omit<LeadForm, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "submissionCount">) => LeadForm;
+  updateForm: (id: string, data: Partial<LeadForm>) => void;
+  deleteForm: (id: string) => void;
+  submitLeadForm: (formId: string, submission: { name: string; email?: string; phone?: string; company?: string; notes?: string }) => Promise<{ success: boolean; leadId?: string; message?: string }>;
 
   // Responses
   recordResponse: (leadId: string, message: string, sentiment: "Positive" | "Negative" | "Question", channel: "WhatsApp" | "Email") => void;
@@ -111,6 +120,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   const [templates, setTemplates] = useState<MarketingTemplate[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [forms, setForms] = useState<LeadForm[]>([]);
   const [responses, setResponses] = useState<LeadResponse[]>([]);
   const [smtpSettings, setSmtpSettings] = useState<SMTPSettings>(DEFAULT_SMTP);
   const [whatsAppSettings, setWhatsAppSettings] = useState<WhatsAppAPISettings>(DEFAULT_WHATSAPP);
@@ -126,6 +136,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       const savedTemplates = localStorage.getItem("fd_marketing_templates");
       const savedCampaigns = localStorage.getItem("fd_marketing_campaigns");
       const savedWorkflows = localStorage.getItem("fd_marketing_workflows");
+      const savedForms = localStorage.getItem("fd_marketing_forms");
       const savedResponses = localStorage.getItem("fd_marketing_responses");
       const savedSmtp = localStorage.getItem("fd_marketing_smtp");
       const savedWa = localStorage.getItem("fd_marketing_wa");
@@ -138,6 +149,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       if (savedTemplates) setTemplates(JSON.parse(savedTemplates));
       if (savedCampaigns) setCampaigns(JSON.parse(savedCampaigns));
       if (savedWorkflows) setWorkflows(JSON.parse(savedWorkflows));
+      if (savedForms) setForms(JSON.parse(savedForms));
       if (savedResponses) setResponses(JSON.parse(savedResponses));
       if (savedSmtp) setSmtpSettings(JSON.parse(savedSmtp));
       if (savedWa) setWhatsAppSettings(JSON.parse(savedWa));
@@ -155,6 +167,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     tList: MarketingTemplate[],
     cList: Campaign[],
     wList: Workflow[],
+    frmList: LeadForm[],
     rList: LeadResponse[],
     smtp: SMTPSettings,
     wa: WhatsAppAPISettings
@@ -169,6 +182,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         localStorage.setItem("fd_marketing_templates", JSON.stringify(tList));
         localStorage.setItem("fd_marketing_campaigns", JSON.stringify(cList));
         localStorage.setItem("fd_marketing_workflows", JSON.stringify(wList));
+        localStorage.setItem("fd_marketing_forms", JSON.stringify(frmList));
         localStorage.setItem("fd_marketing_responses", JSON.stringify(rList));
         localStorage.setItem("fd_marketing_smtp", JSON.stringify(smtp));
         localStorage.setItem("fd_marketing_wa", JSON.stringify(wa));
@@ -184,6 +198,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
               users: uList,
               templates: tList,
               workflows: wList,
+              forms: frmList,
             },
           }),
         }).catch(() => {});
@@ -307,6 +322,27 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       createdAt: new Date().toLocaleDateString(),
     };
 
+    const starterForm: LeadForm = {
+      id: `form-1`,
+      agencyId: orgId,
+      title: "Website Consultation & Quote Form",
+      description: "Embed on your website to capture high-intent leads directly into your marketing workflow.",
+      submitButtonText: "Get Free Consultation",
+      successMessage: "Thank you! Our marketing specialist will WhatsApp and email you shortly.",
+      fields: [
+        { id: "f-name", label: "Full Name", name: "name", type: "text", required: true, placeholder: "John Doe" },
+        { id: "f-phone", label: "WhatsApp / Phone Number", name: "phone", type: "tel", required: true, placeholder: "+91 98765 43210" },
+        { id: "f-email", label: "Work Email", name: "email", type: "email", required: true, placeholder: "john@company.com" },
+        { id: "f-comp", label: "Company Name", name: "company", type: "text", required: false, placeholder: "Acme Corp" },
+        { id: "f-notes", label: "Requirements / Notes", name: "notes", type: "textarea", required: false, placeholder: "Tell us about your needs..." },
+      ],
+      submissionCount: 0,
+      isActive: true,
+      createdById: adminId,
+      createdByName: adminName,
+      createdAt: new Date().toLocaleDateString(),
+    };
+
     setOrganization(newOrg);
     setCurrentUser(adminUser);
     setUsers([adminUser]);
@@ -315,6 +351,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     setTemplates(starterTemplates);
     setCampaigns([]);
     setWorkflows([starterWorkflow]);
+    setForms([starterForm]);
     setResponses([]);
 
     persist(
@@ -326,6 +363,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       starterTemplates,
       [],
       [starterWorkflow],
+      [starterForm],
       [],
       smtpSettings,
       whatsAppSettings
@@ -350,7 +388,6 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   }): Promise<{ success: boolean; message: string }> => {
     let targetOrg = organization;
 
-    // Check localStorage fallback
     if (!targetOrg && typeof window !== "undefined") {
       const saved = localStorage.getItem("fd_marketing_org");
       if (saved) {
@@ -362,7 +399,6 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
 
     const cleanInputCode = joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 
-    // If local targetOrg code does not match or is missing, fetch from global server API
     if (!targetOrg || targetOrg.joinCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() !== cleanInputCode) {
       try {
         const res = await fetch(`/api/v1/agencies?joinCode=${cleanInputCode}`);
@@ -418,12 +454,14 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     const updatedUsers = [...existingUsers.filter((u: any) => u.email.toLowerCase() !== newUser.email), newUser];
     const updatedTemplates = (targetOrg as any).templates || templates;
     const updatedWorkflows = (targetOrg as any).workflows || workflows;
+    const updatedForms = (targetOrg as any).forms || forms;
 
     setOrganization(targetOrg);
     setUsers(updatedUsers);
     setCurrentUser(newUser);
     if (templates.length === 0 && updatedTemplates.length > 0) setTemplates(updatedTemplates);
     if (workflows.length === 0 && updatedWorkflows.length > 0) setWorkflows(updatedWorkflows);
+    if (forms.length === 0 && updatedForms.length > 0) setForms(updatedForms);
 
     persist(
       targetOrg,
@@ -434,6 +472,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       updatedTemplates,
       campaigns,
       updatedWorkflows,
+      updatedForms,
       responses,
       smtpSettings,
       whatsAppSettings
@@ -460,6 +499,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       templates,
       campaigns,
       workflows,
+      forms,
       responses,
       smtpSettings,
       whatsAppSettings
@@ -484,6 +524,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         templates,
         campaigns,
         workflows,
+        forms,
         responses,
         smtpSettings,
         whatsAppSettings
@@ -500,6 +541,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     setTemplates([]);
     setCampaigns([]);
     setWorkflows([]);
+    setForms([]);
     setResponses([]);
     localStorage.clear();
   };
@@ -518,7 +560,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     };
     const updatedUsers = [...users, newMgr];
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
     return newMgr;
   };
 
@@ -546,7 +588,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     };
     const updatedUsers = [...users, newEmp];
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
     return newEmp;
   };
 
@@ -556,7 +598,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       u.id === employeeId ? { ...u, managerId, managerName: mgr?.name } : u
     );
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
   };
 
   const toggleUserActive = (userId: string) => {
@@ -564,7 +606,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       u.id === userId ? { ...u, isActive: !u.isActive } : u
     );
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
   };
 
   const updateUserPermissions = (userId: string, perms: Partial<UserPermissions>) => {
@@ -572,7 +614,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       u.id === userId ? { ...u, permissions: { ...(u.permissions || {}), ...perms } } : u
     );
     setUsers(updatedUsers);
-    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, updatedUsers, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
   };
 
   // Lead Activity Helper
@@ -644,7 +686,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       );
     }
 
-    persist(organization, currentUser, users, updatedLeads, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, updatedLeads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
     return newLead;
   };
 
@@ -713,7 +755,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     setLeads(updatedLeads);
     setFolders(updatedFolders);
 
-    persist(organization, currentUser, users, updatedLeads, updatedFolders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, updatedLeads, updatedFolders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
     return { importedCount: newLeads.length, folderId };
   };
 
@@ -732,7 +774,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         }
         return l;
       });
-      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
       return updated;
     });
   };
@@ -740,7 +782,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   const deleteLead = (leadId: string) => {
     setLeads((prev) => {
       const updated = prev.filter((l) => l.id !== leadId);
-      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
       return updated;
     });
   };
@@ -795,7 +837,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     };
     const updated = [newFolder, ...folders];
     setFolders(updated);
-    persist(organization, currentUser, users, leads, updated, templates, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, updated, templates, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
     return newFolder;
   };
 
@@ -815,20 +857,20 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     };
     const updated = [newTpl, ...templates];
     setTemplates(updated);
-    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
     return newTpl;
   };
 
   const updateTemplate = (id: string, data: Partial<MarketingTemplate>) => {
     const updated = templates.map((t) => (t.id === id ? { ...t, ...data } : t));
     setTemplates(updated);
-    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
   };
 
   const deleteTemplate = (id: string) => {
     const updated = templates.filter((t) => t.id !== id);
     setTemplates(updated);
-    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, updated, campaigns, workflows, forms, responses, smtpSettings, whatsAppSettings);
   };
 
   // Campaigns CRUD
@@ -863,17 +905,17 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
 
     const updated = [newCampaign, ...campaigns];
     setCampaigns(updated);
-    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, forms, responses, smtpSettings, whatsAppSettings);
     return newCampaign;
   };
 
   const updateCampaignStatus = (campaignId: string, status: Campaign["status"]) => {
     const updated = campaigns.map((c) => (c.id === campaignId ? { ...c, status } : c));
     setCampaigns(updated);
-    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, updated, workflows, forms, responses, smtpSettings, whatsAppSettings);
   };
 
-  // Workflows CRUD (Manageable by Admin, Manager, and Employee)
+  // Workflows CRUD
   const createWorkflow = (data: Omit<Workflow, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "enrolledLeadsCount">): Workflow => {
     if (!organization || !currentUser) throw new Error("Unauthenticated");
     const newWf: Workflow = {
@@ -894,26 +936,161 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     };
     const updated = [newWf, ...workflows];
     setWorkflows(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, smtpSettings, whatsAppSettings);
     return newWf;
   };
 
   const updateWorkflow = (id: string, data: Partial<Workflow>) => {
     const updated = workflows.map((w) => (w.id === id ? { ...w, ...data } : w));
     setWorkflows(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, smtpSettings, whatsAppSettings);
   };
 
   const deleteWorkflow = (id: string) => {
     const updated = workflows.filter((w) => w.id !== id);
     setWorkflows(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, smtpSettings, whatsAppSettings);
   };
 
   const toggleWorkflowActive = (workflowId: string) => {
     const updated = workflows.map((w) => (w.id === workflowId ? { ...w, isActive: !w.isActive } : w));
     setWorkflows(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, responses, smtpSettings, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, updated, forms, responses, smtpSettings, whatsAppSettings);
+  };
+
+  // Lead Forms CRUD (Lead Capture Webhook & Embeds)
+  const createForm = (data: Omit<LeadForm, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "submissionCount">): LeadForm => {
+    if (!organization || !currentUser) throw new Error("Unauthenticated");
+    const targetFolder = folders.find((f) => f.id === data.folderId);
+    const targetEmp = users.find((u) => u.id === data.assignedEmployeeId);
+    const targetWf = workflows.find((w) => w.id === data.workflowId);
+
+    const newForm: LeadForm = {
+      id: `form-${Date.now()}`,
+      agencyId: organization.id,
+      title: data.title,
+      description: data.description,
+      submitButtonText: data.submitButtonText || "Submit Inquiry",
+      successMessage: data.successMessage || "Thank you! We have received your request.",
+      folderId: data.folderId,
+      folderName: targetFolder?.name || data.folderName,
+      assignedEmployeeId: data.assignedEmployeeId,
+      assignedEmployeeName: targetEmp?.name || data.assignedEmployeeName,
+      workflowId: data.workflowId,
+      workflowName: targetWf?.name || data.workflowName,
+      fields: data.fields,
+      submissionCount: 0,
+      isActive: true,
+      createdById: currentUser.id,
+      createdByName: currentUser.name,
+      createdAt: new Date().toLocaleDateString(),
+    };
+
+    const updated = [newForm, ...forms];
+    setForms(updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, updated, responses, smtpSettings, whatsAppSettings);
+    return newForm;
+  };
+
+  const updateForm = (id: string, data: Partial<LeadForm>) => {
+    const updated = forms.map((f) => (f.id === id ? { ...f, ...data } : f));
+    setForms(updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, updated, responses, smtpSettings, whatsAppSettings);
+  };
+
+  const deleteForm = (id: string) => {
+    const updated = forms.filter((f) => f.id !== id);
+    setForms(updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, updated, responses, smtpSettings, whatsAppSettings);
+  };
+
+  // Direct Submission Handler from Web Embeds / Public URL
+  const submitLeadForm = async (
+    formId: string,
+    submission: { name: string; email?: string; phone?: string; company?: string; notes?: string }
+  ): Promise<{ success: boolean; leadId?: string; message?: string }> => {
+    const targetForm = forms.find((f) => f.id === formId);
+    if (!targetForm) {
+      return { success: false, message: "Form not found or has been removed." };
+    }
+
+    const assignedUser = users.find((u) => u.id === targetForm.assignedEmployeeId) || users[0];
+    const newLeadId = `lead-${Date.now()}`;
+
+    const initialActivity: LeadActivity = {
+      id: `act-${Date.now()}`,
+      timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+      action: `Lead Captured via Web Form: ${targetForm.title}`,
+      channel: "System",
+      details: `Submitted online. Notes: ${submission.notes || "None"}`,
+      actor: "Web Form Ingestion",
+    };
+
+    const newLead: Lead = {
+      id: newLeadId,
+      agencyId: targetForm.agencyId,
+      name: submission.name || "Web Inquirer",
+      company: submission.company || "",
+      email: submission.email || "",
+      phone: submission.phone || "",
+      whatsApp: submission.phone || "",
+      source: `Web Form: ${targetForm.title}`,
+      status: "New",
+      notes: submission.notes || "",
+      tags: ["Web Form", targetForm.title],
+      folderId: targetForm.folderId,
+      folderName: targetForm.folderName,
+      createdById: targetForm.createdById,
+      createdByName: targetForm.createdByName,
+      assignedEmployeeId: assignedUser?.id || targetForm.createdById,
+      assignedEmployeeName: assignedUser?.name || targetForm.createdByName,
+      managerId: assignedUser?.managerId,
+      managerName: assignedUser?.managerName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      activities: [initialActivity],
+    };
+
+    // Auto-enroll in workflow if configured on form
+    if (targetForm.workflowId) {
+      newLead.activeWorkflowId = targetForm.workflowId;
+      newLead.activeWorkflowName = targetForm.workflowName;
+      newLead.activities.unshift({
+        id: `act-wf-${Date.now()}`,
+        timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+        action: `Enrolled in Workflow: ${targetForm.workflowName}`,
+        channel: "Workflow",
+        details: `Triggered automatically upon web form submission`,
+        actor: "Automation Engine",
+      });
+    }
+
+    const updatedLeads = [newLead, ...leads];
+    const updatedForms = forms.map((f) => (f.id === formId ? { ...f, submissionCount: f.submissionCount + 1 } : f));
+
+    setLeads(updatedLeads);
+    setForms(updatedForms);
+
+    persist(
+      organization,
+      currentUser,
+      users,
+      updatedLeads,
+      folders,
+      templates,
+      campaigns,
+      workflows,
+      updatedForms,
+      responses,
+      smtpSettings,
+      whatsAppSettings
+    );
+
+    return {
+      success: true,
+      leadId: newLeadId,
+      message: targetForm.successMessage || "Thank you! Your submission was received.",
+    };
   };
 
   // Responses
@@ -960,13 +1137,13 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
   const saveSMTPSettings = (settings: Partial<SMTPSettings>) => {
     const updated = { ...smtpSettings, ...settings, isConfigured: true };
     setSmtpSettings(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, responses, updated, whatsAppSettings);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, forms, responses, updated, whatsAppSettings);
   };
 
   const saveWhatsAppSettings = (settings: Partial<WhatsAppAPISettings>) => {
     const updated = { ...whatsAppSettings, ...settings, isConfigured: true };
     setWhatsAppSettings(updated);
-    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, responses, smtpSettings, updated);
+    persist(organization, currentUser, users, leads, folders, templates, campaigns, workflows, forms, responses, smtpSettings, updated);
   };
 
   return (
@@ -981,6 +1158,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         templates,
         campaigns,
         workflows,
+        forms,
         responses,
         smtpSettings,
         whatsAppSettings,
@@ -1011,6 +1189,10 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         updateWorkflow,
         deleteWorkflow,
         toggleWorkflowActive,
+        createForm,
+        updateForm,
+        deleteForm,
+        submitLeadForm,
         recordResponse,
         markResponseHandled,
         saveSMTPSettings,

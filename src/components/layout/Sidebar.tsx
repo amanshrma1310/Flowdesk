@@ -68,6 +68,13 @@ export function Sidebar({ isMobileOpen = false, onCloseMobile }: SidebarProps) {
       badge: folders.length > 0 ? folders.length : undefined,
     },
     {
+      label: "Lead Forms & Embeds",
+      href: "/forms",
+      icon: FileText,
+      badge: "Web Forms",
+      badgeVariant: "purple" as const,
+    },
+    {
       label: "Campaigns",
       href: "/campaigns",
       icon: Megaphone,

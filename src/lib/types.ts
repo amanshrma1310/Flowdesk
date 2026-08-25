@@ -169,6 +169,36 @@ export interface Workflow {
   createdAt: string;
 }
 
+export interface LeadFormField {
+  id: string;
+  label: string;
+  name: "name" | "email" | "phone" | "company" | "notes";
+  type: "text" | "email" | "tel" | "textarea";
+  required: boolean;
+  placeholder?: string;
+}
+
+export interface LeadForm {
+  id: string;
+  agencyId: string;
+  title: string;
+  description?: string;
+  submitButtonText: string;
+  successMessage: string;
+  folderId?: string;
+  folderName?: string;
+  assignedEmployeeId?: string;
+  assignedEmployeeName?: string;
+  workflowId?: string;
+  workflowName?: string;
+  fields: LeadFormField[];
+  submissionCount: number;
+  isActive: boolean;
+  createdById: string;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface SMTPSettings {
   host: string;
   port: string;

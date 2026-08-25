@@ -172,8 +172,14 @@ export default function DashboardPage() {
               <Plus className="h-4 w-4" />
               <span>Quick Add Lead</span>
             </Button>
+            <Link href="/forms">
+              <Button size="sm" variant="outline" className="text-xs border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 gap-1.5">
+                <FileText className="h-4 w-4 text-purple-400" />
+                <span>Web Forms & Embeds</span>
+              </Button>
+            </Link>
             <Link href="/contacts/import">
-              <Button size="sm" variant="outline" className="text-xs border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700">
+              <Button size="sm" variant="outline" className="text-xs border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 gap-1.5">
                 <UploadCloud className="h-4 w-4 text-sky-400" />
                 <span>Import Leads</span>
               </Button>
