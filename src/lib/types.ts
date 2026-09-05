@@ -160,14 +160,67 @@ export interface Campaign {
   createdAt: string;
 }
 
+export type WorkflowActionType =
+  | "SEND_EMAIL"
+  | "SEND_WHATSAPP"
+  | "SEND_SMS"
+  | "WAIT_DELAY"
+  | "IF_ELSE"
+  | "UPDATE_STATUS"
+  | "ADD_TAG"
+  | "REMOVE_TAG"
+  | "ASSIGN_USER"
+  | "MOVE_FOLDER"
+  | "CREATE_TASK"
+  | "INTERNAL_NOTIFY"
+  | "WEBHOOK";
+
+export type WorkflowTriggerType =
+  | "FORM_SUBMITTED"
+  | "LEAD_CREATED"
+  | "TAG_ADDED"
+  | "STATUS_CHANGED"
+  | "WHATSAPP_RECEIVED"
+  | "MANUAL_ENROLLMENT";
+
 export interface WorkflowStep {
   id: string;
   stepNumber: number;
-  dayDelay: number;
-  channel: TemplateChannel;
-  templateId: string;
-  templateName: string;
+  actionType?: WorkflowActionType;
   actionTitle: string;
+  description?: string;
+
+  // Communication
+  channel?: TemplateChannel | "SMS";
+  templateId?: string;
+  templateName?: string;
+  customSubject?: string;
+  customMessage?: string;
+
+  // Timing / Delays
+  dayDelay: number;
+  delayValue?: number;
+  delayUnit?: "minutes" | "hours" | "days";
+
+  // CRM / Contact operations
+  leadStatus?: LeadStatus;
+  tag?: string;
+  assignedUserId?: string;
+  assignedUserName?: string;
+  folderId?: string;
+  folderName?: string;
+  taskTitle?: string;
+  notificationMessage?: string;
+
+  // Logic & Conditions
+  conditionField?: "status" | "tag" | "channel" | "replied" | "score";
+  conditionOperator?: "equals" | "contains" | "is_true" | "is_false";
+  conditionValue?: string;
+  yesSteps?: WorkflowStep[];
+  noSteps?: WorkflowStep[];
+
+  // Webhook
+  webhookUrl?: string;
 }
 
 export interface Workflow {
@@ -175,12 +228,22 @@ export interface Workflow {
   agencyId: string;
   name: string;
   description?: string;
-  trigger: "Lead Added" | "Added to List" | "Manual Enrollment";
+  trigger: string;
+  triggerType?: WorkflowTriggerType;
+  triggerConfig?: {
+    formId?: string;
+    formName?: string;
+    tag?: string;
+    status?: string;
+    folderId?: string;
+  };
   steps: WorkflowStep[];
-  onPositiveResponse: "Status = Interested & Stop automated messages & Notify Employee" | "Custom";
-  onNegativeResponse: "Status = Not Interested & Stop Campaign" | "Custom";
-  onNoResponse: "Send Next Follow-up" | "Stop Workflow";
+  onPositiveResponse?: string;
+  onNegativeResponse?: string;
+  onNoResponse?: string;
   isActive: boolean;
+  allowReEntry?: boolean;
+  stopOnResponse?: boolean;
   createdById: string;
   createdByName: string;
   enrolledLeadsCount: number;

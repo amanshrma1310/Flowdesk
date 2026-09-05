@@ -1,0 +1,268 @@
+import { WorkflowStep, WorkflowTriggerType } from "./types";
+
+export interface WorkflowRecipe {
+  id: string;
+  name: string;
+  category: "Lead Nurture" | "Speed to Lead" | "Sales Routing" | "Re-Engagement" | "Customer Onboarding";
+  badge: string;
+  badgeColor: string;
+  description: string;
+  trigger: string;
+  triggerType: WorkflowTriggerType;
+  triggerConfig?: any;
+  steps: WorkflowStep[];
+  onPositiveResponse?: string;
+  onNegativeResponse?: string;
+  onNoResponse?: string;
+}
+
+export const WORKFLOW_RECIPES: WorkflowRecipe[] = [
+  {
+    id: "recipe-speed-to-lead",
+    name: "⚡ 5-Minute Speed-to-Lead WhatsApp & Email Autoresponder",
+    category: "Speed to Lead",
+    badge: "Most Popular",
+    badgeColor: "emerald",
+    description: "Instantly message new web prospects within seconds via WhatsApp and Email, with automated follow-ups if they don't reply.",
+    trigger: "Web Form Submitted",
+    triggerType: "FORM_SUBMITTED",
+    steps: [
+      {
+        id: "step-1",
+        stepNumber: 1,
+        actionType: "SEND_WHATSAPP",
+        actionTitle: "Send Instant WhatsApp Welcome",
+        channel: "WhatsApp",
+        dayDelay: 0,
+        delayValue: 0,
+        delayUnit: "minutes",
+        customMessage: "Hi {{name}}! Thank you for reaching out to us. We received your consultation inquiry. Is now a good time for a quick 2-minute chat?",
+      },
+      {
+        id: "step-2",
+        stepNumber: 2,
+        actionType: "SEND_EMAIL",
+        actionTitle: "Send Intro & Portfolio Email",
+        channel: "Email",
+        dayDelay: 0,
+        delayValue: 5,
+        delayUnit: "minutes",
+        customSubject: "Welcome to our agency — Here is what you requested",
+        customMessage: "Hi {{name}},\n\nThank you for submitting your details. Our team is already reviewing your requirement. Here are a few case studies of how we helped similar companies grow.",
+      },
+      {
+        id: "step-3",
+        stepNumber: 3,
+        actionType: "UPDATE_STATUS",
+        actionTitle: "Update Status to Contacted",
+        dayDelay: 0,
+        leadStatus: "Contacted",
+      },
+      {
+        id: "step-4",
+        stepNumber: 4,
+        actionType: "WAIT_DELAY",
+        actionTitle: "Wait 24 Hours for Reply",
+        dayDelay: 1,
+        delayValue: 1,
+        delayUnit: "days",
+      },
+      {
+        id: "step-5",
+        stepNumber: 5,
+        actionType: "IF_ELSE",
+        actionTitle: "Check if Lead Replied",
+        dayDelay: 0,
+        conditionField: "replied",
+        conditionOperator: "is_true",
+        conditionValue: "true",
+        yesSteps: [
+          {
+            id: "step-5-yes-1",
+            stepNumber: 6,
+            actionType: "UPDATE_STATUS",
+            actionTitle: "Mark as Interested",
+            dayDelay: 0,
+            leadStatus: "Interested",
+          },
+          {
+            id: "step-5-yes-2",
+            stepNumber: 7,
+            actionType: "INTERNAL_NOTIFY",
+            actionTitle: "Alert Sales Rep to Call Immediately",
+            dayDelay: 0,
+            notificationMessage: "Lead {{name}} has replied to WhatsApp! Call them right away.",
+          },
+        ],
+        noSteps: [
+          {
+            id: "step-5-no-1",
+            stepNumber: 6,
+            actionType: "SEND_WHATSAPP",
+            actionTitle: "Send Gentle WhatsApp Follow-up",
+            channel: "WhatsApp",
+            dayDelay: 0,
+            customMessage: "Hey {{name}}, just checking if you received my earlier message? We have 2 slots available for a demo this week.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "recipe-demo-booking",
+    name: "📅 High-Ticket Consultation & Demo Booking Pipeline",
+    category: "Lead Nurture",
+    badge: "High Converting",
+    badgeColor: "indigo",
+    description: "Guides prospects smoothly toward booking a video call with appointment reminders and sales rep notifications.",
+    trigger: "Lead Status Changed to Interested",
+    triggerType: "STATUS_CHANGED",
+    steps: [
+      {
+        id: "demo-step-1",
+        stepNumber: 1,
+        actionType: "ASSIGN_USER",
+        actionTitle: "Assign Lead to Dedicated Rep",
+        dayDelay: 0,
+      },
+      {
+        id: "demo-step-2",
+        stepNumber: 2,
+        actionType: "SEND_WHATSAPP",
+        actionTitle: "Send Calendar Booking Link via WhatsApp",
+        channel: "WhatsApp",
+        dayDelay: 0,
+        customMessage: "Hi {{name}}! Pick a 15-minute slot on our calendar that fits your schedule: https://cal.com/consultation",
+      },
+      {
+        id: "demo-step-3",
+        stepNumber: 3,
+        actionType: "WAIT_DELAY",
+        actionTitle: "Wait 2 Days",
+        dayDelay: 2,
+        delayValue: 2,
+        delayUnit: "days",
+      },
+      {
+        id: "demo-step-4",
+        stepNumber: 4,
+        actionType: "SEND_EMAIL",
+        actionTitle: "Send Meeting Agenda & Value Add",
+        channel: "Email",
+        dayDelay: 0,
+        customSubject: "Quick agenda for our upcoming discussion",
+        customMessage: "Hi {{name}},\n\nHere is what we will cover during our 15-minute consultation.",
+      },
+      {
+        id: "demo-step-5",
+        stepNumber: 5,
+        actionType: "CREATE_TASK",
+        actionTitle: "Create Task: Follow Up on Calendar Booking",
+        dayDelay: 0,
+        taskTitle: "Check if {{name}} booked calendar slot; if not, call directly.",
+      },
+    ],
+  },
+  {
+    id: "recipe-fast-routing",
+    name: "🚀 Inbound Lead Auto-Tagging & Rep Assignment",
+    category: "Sales Routing",
+    badge: "Automation Pro",
+    badgeColor: "purple",
+    description: "Automatically tags inbound leads, categorizes them into pipeline folders, and routes directly to the right account manager.",
+    trigger: "New Lead Created",
+    triggerType: "LEAD_CREATED",
+    steps: [
+      {
+        id: "route-step-1",
+        stepNumber: 1,
+        actionType: "ADD_TAG",
+        actionTitle: "Tag as 'Hot Inbound Prospect'",
+        dayDelay: 0,
+        tag: "Hot Prospect",
+      },
+      {
+        id: "route-step-2",
+        stepNumber: 2,
+        actionType: "MOVE_FOLDER",
+        actionTitle: "Organize in 'Priority Inbound' Folder",
+        dayDelay: 0,
+        folderName: "Priority Inbound",
+      },
+      {
+        id: "route-step-3",
+        stepNumber: 3,
+        actionType: "ASSIGN_USER",
+        actionTitle: "Assign Account Executive",
+        dayDelay: 0,
+      },
+      {
+        id: "route-step-4",
+        stepNumber: 4,
+        actionType: "INTERNAL_NOTIFY",
+        actionTitle: "Notify Team via Email & Notification",
+        dayDelay: 0,
+        notificationMessage: "New high-priority lead {{name}} from {{company}} has arrived.",
+      },
+    ],
+  },
+  {
+    id: "recipe-cold-reviver",
+    name: "❄️ 3-Touch Cold Lead Re-engagement Campaign",
+    category: "Re-Engagement",
+    badge: "Revenue Booster",
+    badgeColor: "amber",
+    description: "Re-ignites conversations with inactive leads who went silent after initial proposals.",
+    trigger: "Lead Status Changed to Unresponsive",
+    triggerType: "STATUS_CHANGED",
+    steps: [
+      {
+        id: "cold-step-1",
+        stepNumber: 1,
+        actionType: "SEND_EMAIL",
+        actionTitle: "Touch 1: 'Quick question about {{company}}'",
+        channel: "Email",
+        dayDelay: 0,
+        customSubject: "Quick question about {{company}}",
+        customMessage: "Hi {{name}},\n\nI was reviewing our previous conversation. Are you still looking to improve your marketing pipeline this quarter?",
+      },
+      {
+        id: "cold-step-2",
+        stepNumber: 2,
+        actionType: "WAIT_DELAY",
+        actionTitle: "Wait 3 Days",
+        dayDelay: 3,
+        delayValue: 3,
+        delayUnit: "days",
+      },
+      {
+        id: "cold-step-3",
+        stepNumber: 3,
+        actionType: "SEND_WHATSAPP",
+        actionTitle: "Touch 2: WhatsApp Check-in with Special Offer",
+        channel: "WhatsApp",
+        dayDelay: 0,
+        customMessage: "Hi {{name}}! We are offering complimentary audit reports for 3 companies this week. Would you like us to run one for {{company}}?",
+      },
+      {
+        id: "cold-step-4",
+        stepNumber: 4,
+        actionType: "WAIT_DELAY",
+        actionTitle: "Wait 4 Days",
+        dayDelay: 4,
+        delayValue: 4,
+        delayUnit: "days",
+      },
+      {
+        id: "cold-step-5",
+        stepNumber: 5,
+        actionType: "SEND_EMAIL",
+        actionTitle: "Touch 3: Polite Break-up Email",
+        channel: "Email",
+        dayDelay: 0,
+        customSubject: "Permission to close your file?",
+        customMessage: "Hi {{name}},\n\nI haven't heard back, so I assume priorities have shifted. If things change down the road, feel free to reach back out!",
+      },
+    ],
+  },
+];
