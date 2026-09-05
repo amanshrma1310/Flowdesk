@@ -35,6 +35,17 @@ import {
   RotateCcw,
   ArrowUp,
   ArrowDown,
+  Eye,
+  AtSign,
+  User,
+  ExternalLink,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Pencil,
+  Check,
+  Shield,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -80,15 +91,20 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
     createWorkflow,
     updateWorkflow,
     toggleWorkflowActive,
+    smtpSettings,
+    whatsAppSettings,
+    sendRealEmail,
+    sendRealWhatsApp,
     currentUser,
   } = useFlowDesk();
 
-  // Active Tab
+  // Active Tab: Builder Canvas | Settings | History
   const [activeTab, setActiveTab] = useState<"BUILDER" | "SETTINGS" | "ENROLLMENTS">("BUILDER");
 
-  // Workflow State
+  // Workflow Core State
   const [currentWorkflow, setCurrentWorkflow] = useState<Workflow | null>(null);
   const [workflowName, setWorkflowName] = useState("");
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [trigger, setTrigger] = useState("Web Form Submitted");
@@ -97,10 +113,15 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
   const [steps, setSteps] = useState<WorkflowStep[]>([]);
   const [allowReEntry, setAllowReEntry] = useState(false);
   const [stopOnResponse, setStopOnResponse] = useState(true);
+  const [executeBusinessHoursOnly, setExecuteBusinessHoursOnly] = useState(false);
+
+  // Canvas Zoom Level
+  const [zoomLevel, setZoomLevel] = useState(100);
 
   // Drawer & Modal States
   const [selectedStep, setSelectedStep] = useState<WorkflowStep | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<"CONFIG" | "SENDER" | "TEST">("CONFIG");
   const [isAddActionModalOpen, setIsAddActionModalOpen] = useState(false);
   const [insertAtIndex, setInsertAtIndex] = useState<number | null>(null);
   const [insertBranch, setInsertBranch] = useState<"main" | "yes" | "no">("main");
@@ -108,17 +129,27 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
   const [actionSearchQuery, setActionSearchQuery] = useState("");
   const [selectedActionCategory, setSelectedActionCategory] = useState<string>("ALL");
 
-  // Trigger Edit Drawer
+  // Single Action Real Test Dispatches (within drawer)
+  const [drawerTestEmailRecipient, setDrawerTestEmailRecipient] = useState(currentUser?.email || smtpSettings.fromEmail || "");
+  const [isSendingDrawerTestEmail, setIsSendingDrawerTestEmail] = useState(false);
+  const [drawerTestEmailStatus, setDrawerTestEmailStatus] = useState<string | null>(null);
+
+  const [drawerTestWaPhone, setDrawerTestWaPhone] = useState(currentUser?.phone || "+91");
+  const [isSendingDrawerTestWa, setIsSendingDrawerTestWa] = useState(false);
+  const [drawerTestWaStatus, setDrawerTestWaStatus] = useState<string | null>(null);
+
+  // Trigger Drawer
   const [isTriggerDrawerOpen, setIsTriggerDrawerOpen] = useState(false);
 
-  // Test Simulation Modal
+  // Full Workflow Test Simulation Modal
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
   const [testLeadId, setTestLeadId] = useState<string>("");
   const [testLogs, setTestLogs] = useState<string[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
 
-  // Save Toast
+  // Save Toast & Status Indicator
   const [saveAlert, setSaveAlert] = useState<string | null>(null);
+  const [isSaved, setIsSaved] = useState(true);
 
   useEffect(() => {
     const found = workflows.find((w) => w.id === workflowId);
@@ -133,22 +164,26 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
       setSteps(found.steps || []);
       setAllowReEntry(found.allowReEntry || false);
       setStopOnResponse(found.stopOnResponse ?? true);
+      setIsSaved(true);
     } else if (workflowId === "new") {
-      // New workflow starter
       const starter = WORKFLOW_RECIPES[0];
-      setWorkflowName("New Marketing Automation Workflow");
-      setDescription("Automated lead follow-up and multi-channel outreach sequence");
+      setWorkflowName("New Automated Marketing Workflow");
+      setDescription("Multi-touch automated drip sequence with intelligent routing");
       setIsActive(true);
       setTrigger(starter.trigger);
       setTriggerType(starter.triggerType);
       setSteps(starter.steps);
+      setIsSaved(false);
     }
   }, [workflowId, workflows]);
+
+  // Mark unsaved on step change
+  const markDirty = () => setIsSaved(false);
 
   // Save Workflow
   const handleSaveWorkflow = () => {
     if (!workflowName.trim()) {
-      alert("Please provide a workflow name.");
+      alert("Please enter a workflow name.");
       return;
     }
 
@@ -164,6 +199,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
         allowReEntry,
         stopOnResponse,
       });
+      setIsSaved(true);
       setSaveAlert("Workflow saved successfully!");
       setTimeout(() => setSaveAlert(null), 2500);
     } else if (workflowId === "new") {
@@ -181,6 +217,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
         allowReEntry,
         stopOnResponse,
       });
+      setIsSaved(true);
       router.replace(`/automations/${created.id}`);
     }
   };
@@ -198,6 +235,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
   // Insert Action from Modal
   const handleSelectActionType = (actionType: WorkflowActionType) => {
     setIsAddActionModalOpen(false);
+    markDirty();
     const newStepId = `step-${Date.now()}`;
 
     let defaultTitle = "Action Step";
@@ -206,6 +244,9 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
     let templateName: string | undefined = undefined;
     let customSubject = "";
     let customMessage = "";
+    let fromName = smtpSettings.fromName || currentUser?.name || "Outreach Team";
+    let fromEmail = smtpSettings.fromEmail || currentUser?.email || "outreach@agency.com";
+    let sendAsAccount: "SMTP_DEFAULT" | "LOGGED_IN_USER" | "ASSIGNED_USER" | "CUSTOM" = "SMTP_DEFAULT";
     let delayValue = 1;
     let delayUnit: "minutes" | "hours" | "days" = "days";
     let leadStatus: LeadStatus | undefined = undefined;
@@ -220,7 +261,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
         const waTpl = templates.find((t) => t.channel === "WhatsApp") || templates[0];
         templateId = waTpl?.id;
         templateName = waTpl?.name || "WhatsApp Template";
-        customMessage = "Hi {{name}}! Thank you for reaching out. How can we help you today?";
+        customMessage = "Hi {{name}}! Thank you for reaching out to us. How can we help you today?";
         break;
       case "SEND_EMAIL":
         defaultTitle = "Send Outreach Email";
@@ -229,7 +270,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
         templateId = emTpl?.id;
         templateName = emTpl?.name || "Email Template";
         customSubject = "Regarding your consultation request";
-        customMessage = "Hi {{name}},\n\nThank you for reaching out to us. We have received your details.";
+        customMessage = "Hi {{name}},\n\nThank you for reaching out to us. We have received your consultation details and are excited to assist you.";
         break;
       case "SEND_SMS":
         defaultTitle = "Send SMS Text";
@@ -252,7 +293,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
         break;
       case "ADD_TAG":
         defaultTitle = "Add Tag to Lead";
-        tag = "Warm Lead";
+        tag = "Hot Lead";
         break;
       case "REMOVE_TAG":
         defaultTitle = "Remove Tag";
@@ -281,6 +322,9 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
       actionType,
       actionTitle: defaultTitle,
       channel,
+      sendAsAccount,
+      fromName,
+      fromEmail,
       templateId,
       templateName,
       customSubject,
@@ -318,14 +362,14 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
       setSteps(updated);
     }
 
-    // Open configuration drawer for this newly created step
     setSelectedStep(newStep);
+    setDrawerTab("CONFIG");
     setIsDrawerOpen(true);
   };
 
   // Delete Step
   const handleDeleteStep = (stepId: string) => {
-    // Check main branch
+    markDirty();
     const filtered = steps.filter((s) => s.id !== stepId);
     if (filtered.length !== steps.length) {
       setSteps(filtered.map((s, i) => ({ ...s, stepNumber: i + 1 })));
@@ -336,7 +380,6 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
       return;
     }
 
-    // Check nested branches
     const updated = steps.map((s) => {
       if (s.actionType === "IF_ELSE") {
         return {
@@ -357,17 +400,16 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
   // Update Step in Drawer
   const handleUpdateSelectedStep = (changes: Partial<WorkflowStep>) => {
     if (!selectedStep) return;
+    markDirty();
     const updatedStep = { ...selectedStep, ...changes };
     setSelectedStep(updatedStep);
 
-    // Update in main steps
     const inMain = steps.some((s) => s.id === updatedStep.id);
     if (inMain) {
       setSteps(steps.map((s) => (s.id === updatedStep.id ? updatedStep : s)));
       return;
     }
 
-    // Update in nested branches
     const inNested = steps.map((s) => {
       if (s.actionType === "IF_ELSE") {
         return {
@@ -383,6 +425,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
 
   // Reorder Steps (Move Up / Down)
   const handleMoveStep = (index: number, direction: "UP" | "DOWN") => {
+    markDirty();
     const targetIndex = direction === "UP" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= steps.length) return;
     const updated = [...steps];
@@ -394,6 +437,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
 
   // Duplicate Step
   const handleDuplicateStep = (step: WorkflowStep, index: number) => {
+    markDirty();
     const clone: WorkflowStep = {
       ...step,
       id: `step-${Date.now()}`,
@@ -404,49 +448,91 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
     setSteps(updated.map((s, i) => ({ ...s, stepNumber: i + 1 })));
   };
 
-  // Simulate Workflow Test
+  // SEND REAL TEST EMAIL (Right from inside drawer!)
+  const handleSendDrawerTestEmail = async () => {
+    if (!drawerTestEmailRecipient.trim()) {
+      setDrawerTestEmailStatus("Please enter recipient email.");
+      return;
+    }
+    setIsSendingDrawerTestEmail(true);
+    setDrawerTestEmailStatus(null);
+
+    const res = await sendRealEmail({
+      to: drawerTestEmailRecipient.trim(),
+      subject: `[Test Workflow Email] ${selectedStep?.customSubject || "Consultation Follow-up"}`,
+      text: selectedStep?.customMessage || "This is a test outreach message from your FlowDesk workflow.",
+      customSmtp: selectedStep?.fromEmail ? {
+        ...smtpSettings,
+        fromEmail: selectedStep.fromEmail,
+        fromName: selectedStep.fromName || smtpSettings.fromName,
+      } : undefined,
+    });
+
+    setIsSendingDrawerTestEmail(false);
+    setDrawerTestEmailStatus(res.message);
+  };
+
+  // SEND REAL TEST WHATSAPP (Right from inside drawer!)
+  const handleSendDrawerTestWhatsApp = async () => {
+    if (!drawerTestWaPhone.trim()) {
+      setDrawerTestWaStatus("Please enter recipient phone number.");
+      return;
+    }
+    setIsSendingDrawerTestWa(true);
+    setDrawerTestWaStatus(null);
+
+    const res = await sendRealWhatsApp({
+      to: drawerTestWaPhone.trim(),
+      message: selectedStep?.customMessage || "This is a test WhatsApp message from your FlowDesk workflow.",
+    });
+
+    setIsSendingDrawerTestWa(false);
+    setDrawerTestWaStatus(res.message);
+  };
+
+  // Simulate Full Workflow Test
   const handleRunTest = () => {
     setIsSimulating(true);
     setTestLogs([`🚀 Starting Workflow Simulation: "${workflowName}"`]);
 
     const targetLead = scopedLeads.find((l) => l.id === testLeadId) || scopedLeads[0] || {
-      name: "John Doe",
-      email: "john@example.com",
-      phone: "+91 98765 43210",
-      company: "Acme Corp",
+      name: "Aman Sharma",
+      email: "amanshrma22583@gmail.com",
+      phone: "+91 85805 45820",
+      company: "Zerolt Tech",
     };
 
     setTimeout(() => {
       setTestLogs((prev) => [
         ...prev,
-        `📥 Trigger Activated: [${trigger}] with lead ${targetLead.name} (${targetLead.phone || targetLead.email})`,
+        `📥 Trigger Fired: [${trigger}] for prospect ${targetLead.name} (${targetLead.phone || targetLead.email})`,
       ]);
-    }, 400);
+    }, 350);
 
     steps.forEach((step, idx) => {
       setTimeout(() => {
         let actionDesc = "";
         switch (step.actionType) {
           case "SEND_WHATSAPP":
-            actionDesc = `💬 Executed WhatsApp Outreach: "${step.customMessage?.slice(0, 35) || step.templateName}..." ➔ Delivered!`;
+            actionDesc = `💬 WhatsApp Transmitted: "${step.customMessage?.slice(0, 32) || step.templateName}..." to ${targetLead.phone || targetLead.name}`;
             break;
           case "SEND_EMAIL":
-            actionDesc = `✉️ Sent Email: "${step.customSubject || step.templateName}" to ${targetLead.email}`;
+            actionDesc = `✉️ Email Dispatched: From "${step.fromName || smtpSettings.fromName}" <${step.fromEmail || smtpSettings.fromEmail}> ➔ Subject: "${step.customSubject || step.templateName}"`;
             break;
           case "WAIT_DELAY":
-            actionDesc = `⏳ Delay Scheduled: Paused for ${step.delayValue || step.dayDelay} ${step.delayUnit || "days"}`;
+            actionDesc = `⏳ Delay Engine: Paused lead for ${step.delayValue || step.dayDelay} ${step.delayUnit || "days"}`;
             break;
           case "UPDATE_STATUS":
-            actionDesc = `📊 Status Updated: Changed lead status to "${step.leadStatus || "Contacted"}"`;
+            actionDesc = `📊 Status Engine: Lead status updated to "${step.leadStatus || "Contacted"}"`;
             break;
           case "ADD_TAG":
-            actionDesc = `🏷️ Tag Applied: Added "${step.tag || "Hot Prospect"}" to contact profile`;
+            actionDesc = `🏷️ Tagging Engine: Added tag "#${step.tag || "Hot Prospect"}"`;
             break;
           case "ASSIGN_USER":
-            actionDesc = `👤 Lead Assigned: Routed lead to sales executive`;
+            actionDesc = `👤 Routing Engine: Assigned to ${step.assignedUserName || "Lead Owner"}`;
             break;
           case "IF_ELSE":
-            actionDesc = `🔀 Evaluated Condition: [${step.conditionField} ${step.conditionOperator}] ➔ Evaluated successfully`;
+            actionDesc = `🔀 Condition Evaluated: [${step.conditionField} ${step.conditionOperator}] ➔ Verified!`;
             break;
           default:
             actionDesc = `⚡ Action Completed: ${step.actionTitle}`;
@@ -455,79 +541,110 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
 
         if (idx === steps.length - 1) {
           setTimeout(() => {
-            setTestLogs((prev) => [...prev, `🎉 Workflow Simulation Completed with 0 Errors!`]);
+            setTestLogs((prev) => [...prev, `🎉 Full Workflow Simulation Succeeded! All steps verified.`]);
             setIsSimulating(false);
-          }, 400);
+          }, 350);
         }
-      }, 700 * (idx + 1));
+      }, 650 * (idx + 1));
     });
   };
 
-  // Helper Icon & Color Getter for Nodes
+  // Helper Theme for Nodes
   const getActionTheme = (type?: WorkflowActionType) => {
     switch (type) {
       case "SEND_WHATSAPP":
-        return { icon: Send, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/50", border: "border-emerald-300 dark:border-emerald-800", badge: "WhatsApp" };
+        return { icon: Send, color: "text-emerald-600", bg: "bg-emerald-500", lightBg: "bg-emerald-50 dark:bg-emerald-950/40", border: "border-emerald-400 dark:border-emerald-700", badge: "WhatsApp" };
       case "SEND_EMAIL":
-        return { icon: Mail, color: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-950/50", border: "border-sky-300 dark:border-sky-800", badge: "Email" };
+        return { icon: Mail, color: "text-sky-600", bg: "bg-sky-500", lightBg: "bg-sky-50 dark:bg-sky-950/40", border: "border-sky-400 dark:border-sky-700", badge: "Email" };
       case "SEND_SMS":
-        return { icon: MessageSquare, color: "text-teal-600", bg: "bg-teal-50 dark:bg-teal-950/50", border: "border-teal-300 dark:border-teal-800", badge: "SMS" };
+        return { icon: MessageSquare, color: "text-teal-600", bg: "bg-teal-500", lightBg: "bg-teal-50 dark:bg-teal-950/40", border: "border-teal-400 dark:border-teal-700", badge: "SMS" };
       case "WAIT_DELAY":
-        return { icon: Clock, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-950/50", border: "border-amber-300 dark:border-amber-800", badge: "Delay" };
+        return { icon: Clock, color: "text-amber-600", bg: "bg-amber-500", lightBg: "bg-amber-50 dark:bg-amber-950/40", border: "border-amber-400 dark:border-amber-700", badge: "Delay" };
       case "IF_ELSE":
-        return { icon: GitBranch, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-950/50", border: "border-purple-300 dark:border-purple-800", badge: "If / Else" };
+        return { icon: GitBranch, color: "text-purple-600", bg: "bg-purple-500", lightBg: "bg-purple-50 dark:bg-purple-950/40", border: "border-purple-400 dark:border-purple-700", badge: "If / Else" };
       case "UPDATE_STATUS":
-        return { icon: CheckCircle2, color: "text-indigo-600", bg: "bg-indigo-50 dark:bg-indigo-950/50", border: "border-indigo-300 dark:border-indigo-800", badge: "Status" };
+        return { icon: CheckCircle2, color: "text-indigo-600", bg: "bg-indigo-500", lightBg: "bg-indigo-50 dark:bg-indigo-950/40", border: "border-indigo-400 dark:border-indigo-700", badge: "Status" };
       case "ADD_TAG":
       case "REMOVE_TAG":
-        return { icon: Tag, color: "text-violet-600", bg: "bg-violet-50 dark:bg-violet-950/50", border: "border-violet-300 dark:border-violet-800", badge: "Tag" };
+        return { icon: Tag, color: "text-violet-600", bg: "bg-violet-500", lightBg: "bg-violet-50 dark:bg-violet-950/40", border: "border-violet-400 dark:border-violet-700", badge: "Tag" };
       case "ASSIGN_USER":
-        return { icon: UserCheck, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/50", border: "border-blue-300 dark:border-blue-800", badge: "Assign" };
+        return { icon: UserCheck, color: "text-blue-600", bg: "bg-blue-500", lightBg: "bg-blue-50 dark:bg-blue-950/40", border: "border-blue-400 dark:border-blue-700", badge: "Assign" };
       case "MOVE_FOLDER":
-        return { icon: FolderKanban, color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-950/50", border: "border-cyan-300 dark:border-cyan-800", badge: "Folder" };
+        return { icon: FolderKanban, color: "text-cyan-600", bg: "bg-cyan-500", lightBg: "bg-cyan-50 dark:bg-cyan-950/40", border: "border-cyan-400 dark:border-cyan-700", badge: "Folder" };
       case "CREATE_TASK":
-        return { icon: CheckSquare, color: "text-rose-600", bg: "bg-rose-50 dark:bg-rose-950/50", border: "border-rose-300 dark:border-rose-800", badge: "Task" };
+        return { icon: CheckSquare, color: "text-rose-600", bg: "bg-rose-500", lightBg: "bg-rose-50 dark:bg-rose-950/40", border: "border-rose-400 dark:border-rose-700", badge: "Task" };
       case "INTERNAL_NOTIFY":
-        return { icon: Bell, color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-950/50", border: "border-orange-300 dark:border-orange-800", badge: "Alert" };
+        return { icon: Bell, color: "text-orange-600", bg: "bg-orange-500", lightBg: "bg-orange-50 dark:bg-orange-950/40", border: "border-orange-400 dark:border-orange-700", badge: "Alert" };
       case "WEBHOOK":
-        return { icon: Globe, color: "text-fuchsia-600", bg: "bg-fuchsia-50 dark:bg-fuchsia-950/50", border: "border-fuchsia-300 dark:border-fuchsia-800", badge: "Webhook" };
+        return { icon: Globe, color: "text-fuchsia-600", bg: "bg-fuchsia-500", lightBg: "bg-fuchsia-50 dark:bg-fuchsia-950/40", border: "border-fuchsia-400 dark:border-fuchsia-700", badge: "Webhook" };
       default:
-        return { icon: Zap, color: "text-indigo-600", bg: "bg-indigo-50 dark:bg-indigo-950/50", border: "border-indigo-300 dark:border-indigo-800", badge: "Action" };
+        return { icon: Zap, color: "text-indigo-600", bg: "bg-indigo-500", lightBg: "bg-indigo-50 dark:bg-indigo-950/40", border: "border-indigo-400 dark:border-indigo-700", badge: "Action" };
     }
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] bg-slate-50 dark:bg-slate-950 -m-4 md:-m-6 overflow-hidden">
-      {/* 1. TOP HEADER BAR (GoHighLevel Style) */}
-      <div className="h-16 px-4 md:px-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 z-10 shadow-xs">
-        {/* Left: Back & Title */}
+    <div className="flex flex-col h-[calc(100vh-4rem)] bg-slate-100 dark:bg-slate-950 -m-4 md:-m-6 overflow-hidden select-none">
+      {/* 1. TOP HEADER BAR (GoHighLevel Studio Header) */}
+      <div className="h-16 px-4 md:px-6 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 z-20 shadow-xs">
+        {/* Left: Back & Interactive Editable Title */}
         <div className="flex items-center gap-3">
           <Link href="/automations">
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-500 hover:text-slate-900">
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
           <div className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
-          <div>
-            <input
-              type="text"
-              value={workflowName}
-              onChange={(e) => setWorkflowName(e.target.value)}
-              placeholder="Workflow Name..."
-              className="text-sm md:text-base font-bold text-slate-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded px-1.5 py-0.5"
-            />
-            <p className="text-[11px] text-slate-400 px-1.5 hidden sm:block">
-              {steps.length} {steps.length === 1 ? "Action" : "Actions"} • Trigger: {trigger}
-            </p>
+          <div className="flex items-center gap-2">
+            {isEditingTitle ? (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  autoFocus
+                  value={workflowName}
+                  onChange={(e) => {
+                    setWorkflowName(e.target.value);
+                    markDirty();
+                  }}
+                  onBlur={() => setIsEditingTitle(false)}
+                  onKeyDown={(e) => e.key === "Enter" && setIsEditingTitle(false)}
+                  className="h-8 text-sm font-bold w-64 bg-slate-50 dark:bg-slate-800"
+                />
+                <button
+                  onClick={() => setIsEditingTitle(false)}
+                  className="h-7 w-7 rounded bg-indigo-50 text-indigo-600 flex items-center justify-center cursor-pointer"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div
+                onClick={() => setIsEditingTitle(true)}
+                className="group flex items-center gap-1.5 cursor-pointer rounded px-1 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="Click to rename workflow"
+              >
+                <h1 className="text-sm md:text-base font-extrabold text-slate-900 dark:text-white truncate max-w-[280px] sm:max-w-md">
+                  {workflowName || "Untitled Workflow"}
+                </h1>
+                <Pencil className="h-3 w-3 text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200 opacity-60 group-hover:opacity-100" />
+              </div>
+            )}
+
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+              isSaved
+                ? "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                : "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+            }`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${isSaved ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
+              <span>{isSaved ? "Saved" : "Unsaved changes"}</span>
+            </span>
           </div>
         </div>
 
-        {/* Center: Tabs Switcher */}
+        {/* Center: Tabs Switcher (Builder | Settings | History) */}
         <div className="hidden md:flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
           <button
             onClick={() => setActiveTab("BUILDER")}
             className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-              activeTab === "BUILDER" ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold" : "text-slate-500"
+              activeTab === "BUILDER" ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold" : "text-slate-500 hover:text-slate-900"
             }`}
           >
             <GitBranch className="h-3.5 w-3.5" />
@@ -536,7 +653,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
           <button
             onClick={() => setActiveTab("SETTINGS")}
             className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-              activeTab === "SETTINGS" ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold" : "text-slate-500"
+              activeTab === "SETTINGS" ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold" : "text-slate-500 hover:text-slate-900"
             }`}
           >
             <SettingsIcon className="h-3.5 w-3.5" />
@@ -545,7 +662,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
           <button
             onClick={() => setActiveTab("ENROLLMENTS")}
             className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-              activeTab === "ENROLLMENTS" ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold" : "text-slate-500"
+              activeTab === "ENROLLMENTS" ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold" : "text-slate-500 hover:text-slate-900"
             }`}
           >
             <History className="h-3.5 w-3.5" />
@@ -553,20 +670,34 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
           </button>
         </div>
 
-        {/* Right: Status Switch & Save */}
+        {/* Right: Draft/Publish Switch, Test, Save */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Active / Draft Toggle */}
-          <button
-            onClick={() => setIsActive(!isActive)}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
-              isActive
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800"
-                : "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400"
-            }`}
-          >
-            <div className={`h-2 w-2 rounded-full ${isActive ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
-            <span>{isActive ? "Published" : "Draft"}</span>
-          </button>
+          {/* Status Switch (GoHighLevel Pill) */}
+          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700">
+            <button
+              onClick={() => {
+                setIsActive(false);
+                markDirty();
+              }}
+              className={`px-2 py-1 rounded-md cursor-pointer transition-all ${
+                !isActive ? "bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-xs" : "text-slate-400 hover:text-slate-700"
+              }`}
+            >
+              Draft
+            </button>
+            <button
+              onClick={() => {
+                setIsActive(true);
+                markDirty();
+              }}
+              className={`px-2.5 py-1 rounded-md cursor-pointer flex items-center gap-1 transition-all ${
+                isActive ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-slate-700"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${isActive ? "bg-white animate-pulse" : "bg-transparent"}`} />
+              <span>Publish</span>
+            </button>
+          </div>
 
           {/* Test Simulation Button */}
           <Button
@@ -576,7 +707,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
               setTestLogs([]);
               setIsTestModalOpen(true);
             }}
-            className="text-xs font-semibold gap-1.5 border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200"
+            className="text-xs font-semibold gap-1.5 border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200 cursor-pointer"
           >
             <Play className="h-3.5 w-3.5 text-indigo-600" />
             <span className="hidden sm:inline">Test Workflow</span>
@@ -586,7 +717,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
           <Button
             size="sm"
             onClick={handleSaveWorkflow}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5 shadow-sm"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5 shadow-sm cursor-pointer"
           >
             <Save className="h-3.5 w-3.5" />
             <span>Save</span>
@@ -595,80 +726,121 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
       </div>
 
       {saveAlert && (
-        <div className="absolute top-20 right-6 z-50 p-3 bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3 duration-200">
+        <div className="absolute top-20 right-6 z-50 p-3 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3 duration-200">
           <CheckCircle2 className="h-4 w-4" />
           <span>{saveAlert}</span>
         </div>
       )}
 
-      {/* 2. TAB: BUILDER CANVAS (GoHighLevel Flowchart) */}
+      {/* 2. TAB: BUILDER CANVAS (GoHighLevel Flowchart Canvas with Grid Dots) */}
       {activeTab === "BUILDER" && (
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center">
-          <div className="w-full max-w-2xl flex flex-col items-center">
-            {/* TRIGGER NODE (Top of Flow) */}
+        <div
+          className="relative flex-1 overflow-y-auto overflow-x-hidden p-6 sm:p-12 flex justify-center bg-slate-50 dark:bg-slate-950"
+          style={{
+            backgroundImage: "radial-gradient(#cbd5e1 1.2px, transparent 1.2px)",
+            backgroundSize: "24px 24px",
+          }}
+        >
+          {/* Bottom-left Canvas Zoom Controls */}
+          <div className="fixed bottom-6 left-6 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg p-1 flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+            <button
+              onClick={() => setZoomLevel(Math.max(60, zoomLevel - 10))}
+              className="h-7 w-7 rounded hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center cursor-pointer"
+              title="Zoom Out"
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </button>
+            <span className="px-1.5 font-mono text-[11px] font-bold">{zoomLevel}%</span>
+            <button
+              onClick={() => setZoomLevel(Math.min(140, zoomLevel + 10))}
+              className="h-7 w-7 rounded hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center cursor-pointer"
+              title="Zoom In"
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => setZoomLevel(100)}
+              className="h-7 w-7 rounded hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center cursor-pointer border-l border-slate-200 dark:border-slate-800 pl-1"
+              title="Reset Zoom"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div
+            className="w-full max-w-xl flex flex-col items-center transition-transform duration-200 origin-top"
+            style={{ transform: `scale(${zoomLevel / 100})` }}
+          >
+            {/* TRIGGER NODE (Top of GHL Flow) */}
             <div
               onClick={() => setIsTriggerDrawerOpen(true)}
-              className="group relative w-full max-w-md bg-white dark:bg-slate-900 border-2 border-indigo-500 rounded-2xl p-4 shadow-lg hover:shadow-xl hover:border-indigo-600 transition-all cursor-pointer"
+              className="group relative w-full bg-white dark:bg-slate-900 border-2 border-indigo-500 rounded-2xl p-4 shadow-xl hover:shadow-2xl hover:border-indigo-600 transition-all cursor-pointer ring-4 ring-indigo-50 dark:ring-indigo-950/40"
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white flex items-center justify-center shadow-sm">
-                    <Zap className="h-4 w-4" />
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0">
+                    <Zap className="h-5 w-5" />
                   </div>
                   <div>
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                      Workflow Trigger
-                    </span>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                        WORKFLOW TRIGGER
+                      </span>
+                      <span className="text-slate-300">•</span>
+                      <span className="text-[10px] text-slate-400 font-semibold">START</span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
                       {trigger}
                     </h3>
                   </div>
                 </div>
-                <Badge variant="purple" className="text-[10px] font-bold">
-                  Start Event
+                <Badge variant="purple" className="text-[10px] font-bold shrink-0">
+                  Configure
                 </Badge>
               </div>
 
-              <p className="text-[11px] text-slate-500 mt-2 line-clamp-1">
-                {triggerConfig.formName ? `Filtered: ${triggerConfig.formName}` : "Click to select trigger event & filter conditions"}
-              </p>
+              <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 flex items-center justify-between">
+                <span>{triggerConfig.formName ? `Filtered: ${triggerConfig.formName}` : "Runs when trigger event fires"}</span>
+                <span className="text-indigo-600 font-semibold group-hover:underline">Edit Trigger &rarr;</span>
+              </div>
             </div>
 
             {/* Vertical Connector Line & '+' button after Trigger */}
-            <div className="flex flex-col items-center my-2">
-              <div className="w-0.5 h-6 bg-indigo-300 dark:bg-indigo-900" />
+            <div className="flex flex-col items-center my-1">
+              <div className="w-0.5 h-6 bg-slate-300 dark:bg-slate-700" />
               <button
                 onClick={() => handleOpenAddAction(0, "main")}
-                className="h-7 w-7 rounded-full bg-white dark:bg-slate-900 border-2 border-indigo-400 text-indigo-600 hover:bg-indigo-600 hover:text-white flex items-center justify-center shadow-md hover:scale-110 transition-all cursor-pointer group"
-                title="Add Action"
+                className="h-7 w-7 rounded-full bg-white dark:bg-slate-900 border-2 border-indigo-400 text-indigo-600 hover:bg-indigo-600 hover:text-white hover:scale-110 flex items-center justify-center shadow-md transition-all cursor-pointer group"
+                title="Add Next Action"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
               </button>
-              <div className="w-0.5 h-6 bg-indigo-300 dark:bg-indigo-900" />
+              <div className="w-0.5 h-6 bg-slate-300 dark:bg-slate-700" />
             </div>
 
-            {/* STEP CARDS */}
+            {/* ACTION STEP CARDS (GoHighLevel Nodes) */}
             {steps.map((step, index) => {
               const theme = getActionTheme(step.actionType);
               const IconComponent = theme.icon;
 
               return (
                 <React.Fragment key={step.id}>
-                  {/* Step Card */}
+                  {/* Action Node Card */}
                   <div
                     onClick={() => {
                       setSelectedStep(step);
+                      setDrawerTab("CONFIG");
                       setIsDrawerOpen(true);
                     }}
-                    className={`group relative w-full max-w-md bg-white dark:bg-slate-900 border-2 ${theme.border} rounded-2xl p-4 shadow-md hover:shadow-xl transition-all cursor-pointer`}
+                    className={`group relative w-full bg-white dark:bg-slate-900 border-2 ${theme.border} rounded-2xl p-4 shadow-md hover:shadow-xl hover:border-slate-400 transition-all cursor-pointer ring-2 ring-slate-100 dark:ring-slate-800/40`}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-start gap-3">
-                        <div className={`h-9 w-9 rounded-xl ${theme.bg} ${theme.color} flex items-center justify-center shrink-0 border border-slate-200/50 dark:border-slate-800`}>
-                          <IconComponent className="h-4 w-4" />
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className={`h-10 w-10 rounded-xl ${theme.lightBg} ${theme.color} flex items-center justify-center shrink-0 border border-slate-200/60 dark:border-slate-700 shadow-xs`}>
+                          <IconComponent className="h-5 w-5" />
                         </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                               STEP {index + 1}
                             </span>
@@ -677,36 +849,82 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                               {theme.badge}
                             </span>
                           </div>
-                          <h4 className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white mt-0.5 truncate">
                             {step.actionTitle}
                           </h4>
 
-                          {/* Quick details summary */}
-                          <div className="text-[11px] text-slate-500 mt-1 line-clamp-2">
-                            {step.actionType === "SEND_WHATSAPP" && (
-                              <span>💬 {step.customMessage || step.templateName}</span>
-                            )}
+                          {/* GoHighLevel Sender & Summary Details */}
+                          <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
                             {step.actionType === "SEND_EMAIL" && (
-                              <span>✉️ Subject: &quot;{step.customSubject || step.templateName}&quot;</span>
+                              <div className="space-y-0.5">
+                                <p className="truncate text-sky-700 dark:text-sky-300 font-medium">
+                                  From: {step.fromName || smtpSettings.fromName} &lt;{step.fromEmail || smtpSettings.fromEmail}&gt;
+                                </p>
+                                <p className="truncate text-slate-500">
+                                  Subject: &quot;{step.customSubject || step.templateName}&quot;
+                                </p>
+                              </div>
                             )}
+
+                            {step.actionType === "SEND_WHATSAPP" && (
+                              <p className="truncate text-emerald-700 dark:text-emerald-300">
+                                💬 &quot;{step.customMessage?.slice(0, 40) || step.templateName}...&quot;
+                              </p>
+                            )}
+
                             {step.actionType === "WAIT_DELAY" && (
-                              <span>⏳ Wait duration: {step.delayValue || step.dayDelay} {step.delayUnit || "days"}</span>
+                              <p className="font-semibold text-amber-700 dark:text-amber-300">
+                                ⏳ Wait duration: {step.delayValue || step.dayDelay} {step.delayUnit || "days"}
+                              </p>
                             )}
+
                             {step.actionType === "UPDATE_STATUS" && (
-                              <span>📊 New Status: <strong className="text-indigo-600">{step.leadStatus || "Contacted"}</strong></span>
+                              <p className="font-medium text-indigo-700 dark:text-indigo-300">
+                                📊 Set Status: <strong>{step.leadStatus || "Contacted"}</strong>
+                              </p>
                             )}
+
                             {step.actionType === "ADD_TAG" && (
-                              <span>🏷️ Add Tag: <strong className="text-violet-600">#{step.tag || "Inbound"}</strong></span>
+                              <p className="font-medium text-violet-700 dark:text-violet-300">
+                                🏷️ Add Tag: <strong>#{step.tag || "Hot Prospect"}</strong>
+                              </p>
                             )}
+
+                            {step.actionType === "ASSIGN_USER" && (
+                              <p className="font-medium text-blue-700 dark:text-blue-300">
+                                👤 Assignee: <strong>{step.assignedUserName || "Round-Robin Rep"}</strong>
+                              </p>
+                            )}
+
                             {step.actionType === "IF_ELSE" && (
-                              <span>🔀 Check if: <strong>{step.conditionField} {step.conditionOperator}</strong></span>
+                              <p className="font-medium text-purple-700 dark:text-purple-300">
+                                🔀 Branch Rule: {step.conditionField} {step.conditionOperator}
+                              </p>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      {/* Card Action Controls */}
-                      <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                      {/* Quick Node Controls (Hover menu) */}
+                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                        {index > 0 && (
+                          <button
+                            onClick={() => handleMoveStep(index, "UP")}
+                            className="h-6 w-6 rounded flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                            title="Move Step Up"
+                          >
+                            <ArrowUp className="h-3 w-3" />
+                          </button>
+                        )}
+                        {index < steps.length - 1 && (
+                          <button
+                            onClick={() => handleMoveStep(index, "DOWN")}
+                            className="h-6 w-6 rounded flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                            title="Move Step Down"
+                          >
+                            <ArrowDown className="h-3 w-3" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDuplicateStep(step, index)}
                           className="h-6 w-6 rounded flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
@@ -727,10 +945,10 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
 
                   {/* IF/ELSE BRANCHING VISUALIZATION */}
                   {step.actionType === "IF_ELSE" && (
-                    <div className="w-full max-w-xl my-3 px-2">
+                    <div className="w-full my-3 px-2">
                       <div className="grid grid-cols-2 gap-4">
                         {/* Branch YES */}
-                        <div className="flex flex-col items-center bg-emerald-50/50 border-2 border-emerald-200 rounded-2xl p-3 dark:bg-emerald-950/20 dark:border-emerald-800">
+                        <div className="flex flex-col items-center bg-emerald-50/60 border-2 border-emerald-300 rounded-2xl p-3.5 dark:bg-emerald-950/20 dark:border-emerald-800 shadow-sm">
                           <Badge variant="success" className="text-[10px] font-bold mb-2">
                             YES (Condition Met)
                           </Badge>
@@ -742,10 +960,10 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                                 setSelectedStep(ys);
                                 setIsDrawerOpen(true);
                               }}
-                              className="w-full bg-white dark:bg-slate-900 border border-emerald-300 rounded-xl p-2.5 shadow-xs mb-2 text-xs cursor-pointer"
+                              className="w-full bg-white dark:bg-slate-900 border border-emerald-300 rounded-xl p-2.5 shadow-xs mb-2 text-xs cursor-pointer hover:border-emerald-500"
                             >
                               <p className="font-bold text-slate-900 dark:text-white truncate">{ys.actionTitle}</p>
-                              <span className="text-[10px] text-emerald-600">{ys.actionType}</span>
+                              <span className="text-[10px] text-emerald-600 font-semibold">{ys.actionType}</span>
                             </div>
                           ))}
 
@@ -754,12 +972,12 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                             className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 bg-white border border-emerald-300 px-3 py-1.5 rounded-lg shadow-xs flex items-center gap-1 cursor-pointer mt-1"
                           >
                             <Plus className="h-3.5 w-3.5" />
-                            <span>Add YES Action</span>
+                            <span>Add Action</span>
                           </button>
                         </div>
 
                         {/* Branch NO */}
-                        <div className="flex flex-col items-center bg-slate-100 border-2 border-slate-200 rounded-2xl p-3 dark:bg-slate-900 dark:border-slate-800">
+                        <div className="flex flex-col items-center bg-slate-100 border-2 border-slate-300 rounded-2xl p-3.5 dark:bg-slate-900 dark:border-slate-800 shadow-sm">
                           <Badge variant="outline" className="text-[10px] font-bold mb-2">
                             NO (Condition Not Met)
                           </Badge>
@@ -771,10 +989,10 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                                 setSelectedStep(ns);
                                 setIsDrawerOpen(true);
                               }}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 rounded-xl p-2.5 shadow-xs mb-2 text-xs cursor-pointer"
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 rounded-xl p-2.5 shadow-xs mb-2 text-xs cursor-pointer hover:border-slate-400"
                             >
                               <p className="font-bold text-slate-900 dark:text-white truncate">{ns.actionTitle}</p>
-                              <span className="text-[10px] text-slate-500">{ns.actionType}</span>
+                              <span className="text-[10px] text-slate-500 font-semibold">{ns.actionType}</span>
                             </div>
                           ))}
 
@@ -783,7 +1001,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                             className="text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white border border-slate-300 px-3 py-1.5 rounded-lg shadow-xs flex items-center gap-1 cursor-pointer mt-1"
                           >
                             <Plus className="h-3.5 w-3.5" />
-                            <span>Add NO Action</span>
+                            <span>Add Action</span>
                           </button>
                         </div>
                       </div>
@@ -791,25 +1009,25 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                   )}
 
                   {/* Vertical Connector Line & '+' button between steps */}
-                  <div className="flex flex-col items-center my-2">
-                    <div className="w-0.5 h-6 bg-slate-300 dark:bg-slate-800" />
+                  <div className="flex flex-col items-center my-1">
+                    <div className="w-0.5 h-6 bg-slate-300 dark:bg-slate-700" />
                     <button
                       onClick={() => handleOpenAddAction(index + 1, "main")}
-                      className="h-7 w-7 rounded-full bg-white dark:bg-slate-900 border-2 border-indigo-400 text-indigo-600 hover:bg-indigo-600 hover:text-white flex items-center justify-center shadow-md hover:scale-110 transition-all cursor-pointer group"
-                      title="Add Action"
+                      className="h-7 w-7 rounded-full bg-white dark:bg-slate-900 border-2 border-indigo-400 text-indigo-600 hover:bg-indigo-600 hover:text-white hover:scale-110 flex items-center justify-center shadow-md transition-all cursor-pointer group"
+                      title="Add Next Action"
                     >
-                      <Plus className="h-4 w-4" />
+                      <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
                     </button>
-                    <div className="w-0.5 h-6 bg-slate-300 dark:bg-slate-800" />
+                    <div className="w-0.5 h-6 bg-slate-300 dark:bg-slate-700" />
                   </div>
                 </React.Fragment>
               );
             })}
 
             {/* END OF WORKFLOW CARD */}
-            <div className="w-full max-w-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-center shadow-xs">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-slate-400" />
+            <div className="w-full max-w-xs bg-slate-200/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-2xl p-3 text-center shadow-sm">
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center justify-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                 <span>Workflow Ends</span>
               </span>
             </div>
@@ -817,10 +1035,10 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
         </div>
       )}
 
-      {/* 3. TAB: SETTINGS */}
+      {/* 3. TAB: SETTINGS (GHL Workflow Rules) */}
       {activeTab === "SETTINGS" && (
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center">
-          <Card className="w-full max-w-2xl">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center bg-slate-50 dark:bg-slate-950">
+          <Card className="w-full max-w-2xl shadow-md">
             <CardHeader className="p-6 pb-4">
               <CardTitle className="text-base font-bold flex items-center gap-2">
                 <SettingsIcon className="h-4 w-4 text-indigo-600" />
@@ -830,17 +1048,20 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                 Configure contact re-entry rules, response behavior, and sender defaults.
               </CardDescription>
             </CardHeader>
-            <CardContent className="p-6 pt-0 space-y-6 text-xs">
-              <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+            <CardContent className="p-6 pt-0 space-y-5 text-xs">
+              <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
                 <div>
-                  <h4 className="font-bold text-slate-900 dark:text-white">Stop on Contact Response</h4>
+                  <h4 className="font-bold text-slate-900 dark:text-white">Stop Automation on Contact Response</h4>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Immediately stop sending automated emails & WhatsApp messages if the lead replies.
+                    Immediately stop sending automated emails & WhatsApp follow-ups when the customer replies.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setStopOnResponse(!stopOnResponse)}
+                  onClick={() => {
+                    setStopOnResponse(!stopOnResponse);
+                    markDirty();
+                  }}
                   className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                     stopOnResponse ? "bg-indigo-600" : "bg-slate-300 dark:bg-slate-700"
                   }`}
@@ -853,16 +1074,19 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                 </button>
               </div>
 
-              <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white">Allow Contact Re-Entry</h4>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Allow a contact to enter this workflow multiple times (e.g. for every form submission).
+                    Allow a contact to enter this workflow multiple times (e.g. for every web form inquiry).
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setAllowReEntry(!allowReEntry)}
+                  onClick={() => {
+                    setAllowReEntry(!allowReEntry);
+                    markDirty();
+                  }}
                   className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                     allowReEntry ? "bg-indigo-600" : "bg-slate-300 dark:bg-slate-700"
                   }`}
@@ -882,14 +1106,17 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                 <textarea
                   rows={3}
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Explain what this automation does for your team..."
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    markDirty();
+                  }}
+                  placeholder="Explain what this automation sequence accomplishes..."
                   className="w-full p-2.5 rounded-lg border border-slate-200 text-xs bg-white dark:bg-slate-950 dark:border-slate-800"
                 />
               </div>
 
-              <div className="pt-2 border-t border-slate-100 flex justify-end">
-                <Button onClick={handleSaveWorkflow} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5">
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <Button onClick={handleSaveWorkflow} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5 cursor-pointer">
                   <Save className="h-3.5 w-3.5" />
                   <span>Save Settings</span>
                 </Button>
@@ -901,8 +1128,8 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
 
       {/* 4. TAB: ENROLLMENT HISTORY */}
       {activeTab === "ENROLLMENTS" && (
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center">
-          <Card className="w-full max-w-3xl">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center bg-slate-50 dark:bg-slate-950">
+          <Card className="w-full max-w-3xl shadow-md">
             <CardHeader className="p-6 pb-4 flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-base font-bold flex items-center gap-2">
@@ -920,7 +1147,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
 
             <CardContent className="p-6 pt-0">
               {scopedLeads.filter((l) => l.activeWorkflowId === workflowId).length === 0 ? (
-                <div className="text-center py-12 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
+                <div className="text-center py-16 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
                   <History className="h-8 w-8 text-slate-300 mx-auto" />
                   <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No active leads currently in this workflow</p>
                   <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
@@ -934,7 +1161,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                     .map((lead) => (
                       <div
                         key={lead.id}
-                        className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between text-xs dark:bg-slate-900 dark:border-slate-800"
+                        className="p-3.5 bg-white border border-slate-200 rounded-xl flex items-center justify-between text-xs dark:bg-slate-900 dark:border-slate-800 shadow-xs"
                       >
                         <div>
                           <p className="font-bold text-slate-900 dark:text-white">{lead.name}</p>
@@ -955,18 +1182,18 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
         </div>
       )}
 
-      {/* 5. SLIDE-OUT ACTION CONFIGURATION DRAWER (GoHighLevel Right Panel) */}
+      {/* 5. SLIDE-OUT ACTION CONFIGURATION DRAWER (GoHighLevel Action Inspector) */}
       {isDrawerOpen && selectedStep && (
-        <div className="fixed inset-y-0 right-0 w-full sm:w-[450px] bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-50 flex flex-col animate-in slide-in-from-right duration-200">
+        <div className="fixed inset-y-0 right-0 w-full sm:w-[480px] bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-50 flex flex-col animate-in slide-in-from-right duration-200">
           {/* Drawer Header */}
-          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center dark:bg-indigo-950 dark:text-indigo-400">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
                 <Sliders className="h-4 w-4" />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-slate-900 dark:text-white">Configure Action</h3>
-                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">{selectedStep.actionType}</span>
+                <h3 className="text-xs font-bold text-slate-900 dark:text-white">Action Settings</h3>
+                <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider">{selectedStep.actionType}</span>
               </div>
             </div>
             <button
@@ -977,248 +1204,462 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
             </button>
           </div>
 
+          {/* Drawer Inner Tabs (For Email / WhatsApp: Settings | Sender Info | Test) */}
+          {(selectedStep.actionType === "SEND_EMAIL" || selectedStep.actionType === "SEND_WHATSAPP") && (
+            <div className="flex border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 pt-2 text-xs font-bold">
+              <button
+                onClick={() => setDrawerTab("CONFIG")}
+                className={`px-3 py-2 border-b-2 cursor-pointer transition-colors ${
+                  drawerTab === "CONFIG" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                Message & Content
+              </button>
+              <button
+                onClick={() => setDrawerTab("SENDER")}
+                className={`px-3 py-2 border-b-2 cursor-pointer transition-colors ${
+                  drawerTab === "SENDER" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                Sender & From Email
+              </button>
+              <button
+                onClick={() => setDrawerTab("TEST")}
+                className={`px-3 py-2 border-b-2 cursor-pointer transition-colors ${
+                  drawerTab === "TEST" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                Send Test
+              </button>
+            </div>
+          )}
+
           {/* Drawer Form Body */}
           <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
-            {/* Action Title */}
+            {/* Step Action Name */}
             <div>
               <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Action Name</label>
               <Input
                 value={selectedStep.actionTitle}
                 onChange={(e) => handleUpdateSelectedStep({ actionTitle: e.target.value })}
-                placeholder="e.g. Send Welcome WhatsApp"
+                placeholder="e.g. Send Welcome Outreach"
               />
             </div>
 
-            {/* A. WHATSAPP CONFIG */}
-            {selectedStep.actionType === "SEND_WHATSAPP" && (
-              <div className="space-y-3 p-3.5 bg-emerald-50/50 border border-emerald-200 rounded-xl dark:bg-emerald-950/20 dark:border-emerald-800">
+            {/* TAB: SENDER & FROM EMAIL (The exact feature user requested!) */}
+            {drawerTab === "SENDER" && selectedStep.actionType === "SEND_EMAIL" && (
+              <div className="space-y-3.5 p-4 bg-sky-50/60 border border-sky-200 rounded-xl dark:bg-sky-950/20 dark:border-sky-800">
+                <div className="flex items-center gap-2 text-sky-900 dark:text-sky-200 font-bold">
+                  <AtSign className="h-4 w-4 text-sky-600" />
+                  <span>Choose Outbound Sender Account:</span>
+                </div>
+
                 <div>
-                  <label className="font-semibold text-emerald-900 dark:text-emerald-200 block mb-1">Select WhatsApp Template</label>
+                  <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Send Email As</label>
                   <select
-                    value={selectedStep.templateId || ""}
+                    value={selectedStep.sendAsAccount || "SMTP_DEFAULT"}
                     onChange={(e) => {
-                      const t = templates.find((tpl) => tpl.id === e.target.value);
-                      handleUpdateSelectedStep({
-                        templateId: e.target.value,
-                        templateName: t?.name || "WhatsApp Template",
-                        customMessage: t?.body || selectedStep.customMessage,
-                      });
+                      const mode = e.target.value as any;
+                      if (mode === "SMTP_DEFAULT") {
+                        handleUpdateSelectedStep({
+                          sendAsAccount: mode,
+                          fromName: smtpSettings.fromName || "FlowDesk Outreach",
+                          fromEmail: smtpSettings.fromEmail || "outreach@agency.com",
+                        });
+                      } else if (mode === "LOGGED_IN_USER") {
+                        handleUpdateSelectedStep({
+                          sendAsAccount: mode,
+                          fromName: currentUser?.name || "Team Member",
+                          fromEmail: currentUser?.email || smtpSettings.fromEmail,
+                        });
+                      } else {
+                        handleUpdateSelectedStep({ sendAsAccount: mode });
+                      }
                     }}
                     className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
                   >
-                    <option value="">-- Custom WhatsApp Message --</option>
-                    {templates.filter((t) => t.channel === "WhatsApp").map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
+                    <option value="SMTP_DEFAULT">Default Agency SMTP ({smtpSettings.fromEmail || "Not Configured"})</option>
+                    <option value="LOGGED_IN_USER">Logged-in User Account ({currentUser?.name} &lt;{currentUser?.email}&gt;)</option>
+                    <option value="ASSIGNED_USER">Contact's Assigned Owner (Dynamic &#123;&#123;assigned_user&#125;&#125;)</option>
+                    <option value="CUSTOM">Custom Sender Name & Email</option>
                   </select>
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="font-semibold text-emerald-900 dark:text-emerald-200">Message Content</label>
-                    <span className="text-[10px] text-slate-400">Supports variables: &#123;&#123;name&#125;&#125;, &#123;&#123;company&#125;&#125;</span>
-                  </div>
-                  <textarea
-                    rows={4}
-                    value={selectedStep.customMessage || ""}
-                    onChange={(e) => handleUpdateSelectedStep({ customMessage: e.target.value })}
-                    placeholder="Hi {{name}}! Thank you for reaching out..."
-                    className="w-full p-2.5 rounded-lg border border-slate-200 text-xs bg-white font-sans dark:bg-slate-950"
+                  <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">From Name (Display Name) *</label>
+                  <Input
+                    value={selectedStep.fromName || ""}
+                    onChange={(e) => handleUpdateSelectedStep({ fromName: e.target.value })}
+                    placeholder="e.g. Aman Sharma"
                   />
-                  <div className="flex items-center gap-1.5 mt-1.5 overflow-x-auto pb-1">
-                    {["{{name}}", "{{company}}", "{{phone}}", "{{email}}"].map((tag) => (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => handleUpdateSelectedStep({ customMessage: `${selectedStep.customMessage || ""} ${tag}` })}
-                        className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-600 hover:bg-slate-50 cursor-pointer shrink-0 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">From Email Address *</label>
+                  <Input
+                    type="email"
+                    value={selectedStep.fromEmail || ""}
+                    onChange={(e) => handleUpdateSelectedStep({ fromEmail: e.target.value })}
+                    placeholder="e.g. amanshrma22583@gmail.com"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Emails will be delivered through your configured SMTP gateway with this sender address.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Reply-To Email (Optional)</label>
+                  <Input
+                    type="email"
+                    value={selectedStep.replyToEmail || ""}
+                    onChange={(e) => handleUpdateSelectedStep({ replyToEmail: e.target.value })}
+                    placeholder="e.g. replies@agency.com"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* TAB: TEST SENDER ACTION DIRECTLY */}
+            {drawerTab === "TEST" && selectedStep.actionType === "SEND_EMAIL" && (
+              <div className="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-xl dark:bg-slate-950 dark:border-slate-800">
+                <h4 className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Play className="h-3.5 w-3.5 text-indigo-600" />
+                  <span>Send Real Test Email</span>
+                </h4>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Verify how this exact email arrives in your inbox with sender headers:
+                  <br />
+                  <strong>From:</strong> {selectedStep.fromName || smtpSettings.fromName} &lt;{selectedStep.fromEmail || smtpSettings.fromEmail}&gt;
+                </p>
+
+                <div className="flex gap-2 pt-1">
+                  <Input
+                    type="email"
+                    placeholder="Enter your email"
+                    value={drawerTestEmailRecipient}
+                    onChange={(e) => setDrawerTestEmailRecipient(e.target.value)}
+                    className="bg-white dark:bg-slate-900 text-xs"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isSendingDrawerTestEmail}
+                    onClick={handleSendDrawerTestEmail}
+                    className="bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs shrink-0"
+                  >
+                    {isSendingDrawerTestEmail ? "Sending..." : "Send Test"}
+                  </Button>
+                </div>
+
+                {drawerTestEmailStatus && (
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg text-[11px] text-slate-800 dark:bg-slate-900 dark:text-slate-200 font-mono">
+                    {drawerTestEmailStatus}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB: TEST WHATSAPP ACTION DIRECTLY */}
+            {drawerTab === "TEST" && selectedStep.actionType === "SEND_WHATSAPP" && (
+              <div className="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-xl dark:bg-slate-950 dark:border-slate-800">
+                <h4 className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Play className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Send Real Test WhatsApp</span>
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Transmit this message directly to your phone via Meta WhatsApp Cloud API.
+                </p>
+
+                <div className="flex gap-2 pt-1">
+                  <Input
+                    type="tel"
+                    placeholder="e.g. +91 98765 43210"
+                    value={drawerTestWaPhone}
+                    onChange={(e) => setDrawerTestWaPhone(e.target.value)}
+                    className="bg-white dark:bg-slate-900 text-xs"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isSendingDrawerTestWa}
+                    onClick={handleSendDrawerTestWhatsApp}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shrink-0"
+                  >
+                    {isSendingDrawerTestWa ? "Sending..." : "Send Test"}
+                  </Button>
+                </div>
+
+                {drawerTestWaStatus && (
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg text-[11px] text-slate-800 dark:bg-slate-900 dark:text-slate-200 font-mono">
+                    {drawerTestWaStatus}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB: CONFIG (Main content for all actions) */}
+            {drawerTab === "CONFIG" && (
+              <>
+                {/* A. WHATSAPP CONFIG */}
+                {selectedStep.actionType === "SEND_WHATSAPP" && (
+                  <div className="space-y-3 p-3.5 bg-emerald-50/50 border border-emerald-200 rounded-xl dark:bg-emerald-950/20 dark:border-emerald-800">
+                    <div>
+                      <label className="font-semibold text-emerald-900 dark:text-emerald-200 block mb-1">Select WhatsApp Template</label>
+                      <select
+                        value={selectedStep.templateId || ""}
+                        onChange={(e) => {
+                          const t = templates.find((tpl) => tpl.id === e.target.value);
+                          handleUpdateSelectedStep({
+                            templateId: e.target.value,
+                            templateName: t?.name || "WhatsApp Template",
+                            customMessage: t?.body || selectedStep.customMessage,
+                          });
+                        }}
+                        className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
                       >
-                        + {tag}
-                      </button>
-                    ))}
+                        <option value="">-- Custom WhatsApp Message --</option>
+                        {templates.filter((t) => t.channel === "WhatsApp").map((t) => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-semibold text-emerald-900 dark:text-emerald-200">Message Content</label>
+                        <span className="text-[10px] text-slate-400">Personalize with tags</span>
+                      </div>
+                      <textarea
+                        rows={5}
+                        value={selectedStep.customMessage || ""}
+                        onChange={(e) => handleUpdateSelectedStep({ customMessage: e.target.value })}
+                        placeholder="Hi {{name}}! Thank you for reaching out..."
+                        className="w-full p-2.5 rounded-lg border border-slate-200 text-xs bg-white font-sans dark:bg-slate-950"
+                      />
+                      <div className="flex items-center gap-1.5 mt-1.5 overflow-x-auto pb-1">
+                        {["{{name}}", "{{company}}", "{{phone}}", "{{email}}"].map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => handleUpdateSelectedStep({ customMessage: `${selectedStep.customMessage || ""} ${tag}` })}
+                            className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-600 hover:bg-slate-50 cursor-pointer shrink-0 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
+                          >
+                            + {tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
+                )}
 
-            {/* B. EMAIL CONFIG */}
-            {selectedStep.actionType === "SEND_EMAIL" && (
-              <div className="space-y-3 p-3.5 bg-sky-50/50 border border-sky-200 rounded-xl dark:bg-sky-950/20 dark:border-sky-800">
-                <div>
-                  <label className="font-semibold text-sky-900 dark:text-sky-200 block mb-1">Select Email Template</label>
-                  <select
-                    value={selectedStep.templateId || ""}
-                    onChange={(e) => {
-                      const t = templates.find((tpl) => tpl.id === e.target.value);
-                      handleUpdateSelectedStep({
-                        templateId: e.target.value,
-                        templateName: t?.name || "Email Template",
-                        customSubject: t?.subject || selectedStep.customSubject,
-                        customMessage: t?.body || selectedStep.customMessage,
-                      });
-                    }}
-                    className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
-                  >
-                    <option value="">-- Custom Email --</option>
-                    {templates.filter((t) => t.channel === "Email").map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
+                {/* B. EMAIL CONFIG */}
+                {selectedStep.actionType === "SEND_EMAIL" && (
+                  <div className="space-y-3 p-3.5 bg-sky-50/50 border border-sky-200 rounded-xl dark:bg-sky-950/20 dark:border-sky-800">
+                    <div>
+                      <label className="font-semibold text-sky-900 dark:text-sky-200 block mb-1">Select Email Template</label>
+                      <select
+                        value={selectedStep.templateId || ""}
+                        onChange={(e) => {
+                          const t = templates.find((tpl) => tpl.id === e.target.value);
+                          handleUpdateSelectedStep({
+                            templateId: e.target.value,
+                            templateName: t?.name || "Email Template",
+                            customSubject: t?.subject || selectedStep.customSubject,
+                            customMessage: t?.body || selectedStep.customMessage,
+                          });
+                        }}
+                        className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
+                      >
+                        <option value="">-- Custom Email --</option>
+                        {templates.filter((t) => t.channel === "Email").map((t) => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
 
-                <div>
-                  <label className="font-semibold text-sky-900 dark:text-sky-200 block mb-1">Email Subject Line</label>
-                  <Input
-                    value={selectedStep.customSubject || ""}
-                    onChange={(e) => handleUpdateSelectedStep({ customSubject: e.target.value })}
-                    placeholder="e.g. Welcome {{name}} — Consultation Details"
-                  />
-                </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-semibold text-sky-900 dark:text-sky-200">Email Subject Line</label>
+                        <span className="text-[10px] text-slate-400">Add &#123;&#123;name&#125;&#125;</span>
+                      </div>
+                      <Input
+                        value={selectedStep.customSubject || ""}
+                        onChange={(e) => handleUpdateSelectedStep({ customSubject: e.target.value })}
+                        placeholder="e.g. Welcome {{name}} — Consultation Details"
+                      />
+                    </div>
 
-                <div>
-                  <label className="font-semibold text-sky-900 dark:text-sky-200 block mb-1">Email Body</label>
-                  <textarea
-                    rows={4}
-                    value={selectedStep.customMessage || ""}
-                    onChange={(e) => handleUpdateSelectedStep({ customMessage: e.target.value })}
-                    placeholder="Hi {{name}},\n\nThank you for reaching out..."
-                    className="w-full p-2.5 rounded-lg border border-slate-200 text-xs bg-white font-sans dark:bg-slate-950"
-                  />
-                </div>
-              </div>
-            )}
+                    <div>
+                      <label className="font-semibold text-sky-900 dark:text-sky-200 block mb-1">Email Body Content</label>
+                      <textarea
+                        rows={6}
+                        value={selectedStep.customMessage || ""}
+                        onChange={(e) => handleUpdateSelectedStep({ customMessage: e.target.value })}
+                        placeholder="Hi {{name}},\n\nThank you for reaching out..."
+                        className="w-full p-2.5 rounded-lg border border-slate-200 text-xs bg-white font-sans dark:bg-slate-950"
+                      />
+                      <div className="flex items-center gap-1.5 mt-1.5 overflow-x-auto pb-1">
+                        {["{{name}}", "{{company}}", "{{phone}}", "{{email}}"].map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => handleUpdateSelectedStep({ customMessage: `${selectedStep.customMessage || ""} ${tag}` })}
+                            className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[10px] text-slate-600 hover:bg-slate-50 cursor-pointer shrink-0 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
+                          >
+                            + {tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-            {/* C. WAIT / DELAY CONFIG */}
-            {selectedStep.actionType === "WAIT_DELAY" && (
-              <div className="space-y-3 p-3.5 bg-amber-50/50 border border-amber-200 rounded-xl dark:bg-amber-950/20 dark:border-amber-800">
-                <label className="font-semibold text-amber-900 dark:text-amber-200 block mb-1">Wait Duration</label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={selectedStep.delayValue || selectedStep.dayDelay || 1}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value) || 1;
-                      handleUpdateSelectedStep({
-                        delayValue: val,
-                        dayDelay: selectedStep.delayUnit === "days" ? val : 0,
-                      });
-                    }}
-                    className="w-28"
-                  />
-                  <select
-                    value={selectedStep.delayUnit || "days"}
-                    onChange={(e) => {
-                      const unit = e.target.value as "minutes" | "hours" | "days";
-                      handleUpdateSelectedStep({
-                        delayUnit: unit,
-                        dayDelay: unit === "days" ? (selectedStep.delayValue || 1) : 0,
-                      });
-                    }}
-                    className="flex-1 h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
-                  >
-                    <option value="minutes">Minutes</option>
-                    <option value="hours">Hours</option>
-                    <option value="days">Days</option>
-                  </select>
-                </div>
-              </div>
-            )}
+                    <div className="pt-2 border-t border-sky-200/60 dark:border-sky-800/60 flex items-center justify-between">
+                      <span className="text-[11px] text-sky-800 dark:text-sky-300">
+                        Sending from: <strong>{selectedStep.fromEmail || smtpSettings.fromEmail}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setDrawerTab("SENDER")}
+                        className="text-indigo-600 dark:text-indigo-400 font-bold underline text-[11px] cursor-pointer"
+                      >
+                        Change Sender &rarr;
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-            {/* D. STATUS UPDATE CONFIG */}
-            {selectedStep.actionType === "UPDATE_STATUS" && (
-              <div className="space-y-3 p-3.5 bg-indigo-50/50 border border-indigo-200 rounded-xl dark:bg-indigo-950/20 dark:border-indigo-800">
-                <label className="font-semibold text-indigo-900 dark:text-indigo-200 block mb-1">Set Lead Status To</label>
-                <select
-                  value={selectedStep.leadStatus || "Contacted"}
-                  onChange={(e) => handleUpdateSelectedStep({ leadStatus: e.target.value as LeadStatus })}
-                  className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
-                >
-                  {ALL_STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+                {/* C. WAIT / DELAY CONFIG */}
+                {selectedStep.actionType === "WAIT_DELAY" && (
+                  <div className="space-y-3 p-3.5 bg-amber-50/50 border border-amber-200 rounded-xl dark:bg-amber-950/20 dark:border-amber-800">
+                    <label className="font-semibold text-amber-900 dark:text-amber-200 block mb-1">Wait Duration</label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={selectedStep.delayValue || selectedStep.dayDelay || 1}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 1;
+                          handleUpdateSelectedStep({
+                            delayValue: val,
+                            dayDelay: selectedStep.delayUnit === "days" ? val : 0,
+                          });
+                        }}
+                        className="w-28"
+                      />
+                      <select
+                        value={selectedStep.delayUnit || "days"}
+                        onChange={(e) => {
+                          const unit = e.target.value as "minutes" | "hours" | "days";
+                          handleUpdateSelectedStep({
+                            delayUnit: unit,
+                            dayDelay: unit === "days" ? (selectedStep.delayValue || 1) : 0,
+                          });
+                        }}
+                        className="flex-1 h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
+                      >
+                        <option value="minutes">Minutes</option>
+                        <option value="hours">Hours</option>
+                        <option value="days">Days</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
 
-            {/* E. TAG CONFIG */}
-            {(selectedStep.actionType === "ADD_TAG" || selectedStep.actionType === "REMOVE_TAG") && (
-              <div className="space-y-3 p-3.5 bg-violet-50/50 border border-violet-200 rounded-xl dark:bg-violet-950/20 dark:border-violet-800">
-                <label className="font-semibold text-violet-900 dark:text-violet-200 block mb-1">Tag Name</label>
-                <Input
-                  value={selectedStep.tag || ""}
-                  onChange={(e) => handleUpdateSelectedStep({ tag: e.target.value })}
-                  placeholder="e.g. Hot Lead, Webinar, Demo Booked"
-                />
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {["Hot Lead", "Inbound", "Consultation", "VIP", "Follow-up", "Cold"].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => handleUpdateSelectedStep({ tag: preset })}
-                      className="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] text-slate-600 hover:border-violet-400 cursor-pointer dark:bg-slate-900"
+                {/* D. STATUS UPDATE CONFIG */}
+                {selectedStep.actionType === "UPDATE_STATUS" && (
+                  <div className="space-y-3 p-3.5 bg-indigo-50/50 border border-indigo-200 rounded-xl dark:bg-indigo-950/20 dark:border-indigo-800">
+                    <label className="font-semibold text-indigo-900 dark:text-indigo-200 block mb-1">Set Lead Status To</label>
+                    <select
+                      value={selectedStep.leadStatus || "Contacted"}
+                      onChange={(e) => handleUpdateSelectedStep({ leadStatus: e.target.value as LeadStatus })}
+                      className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
                     >
-                      #{preset}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+                      {ALL_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-            {/* F. ASSIGN USER CONFIG */}
-            {selectedStep.actionType === "ASSIGN_USER" && (
-              <div className="space-y-3 p-3.5 bg-blue-50/50 border border-blue-200 rounded-xl dark:bg-blue-950/20 dark:border-blue-800">
-                <label className="font-semibold text-blue-900 dark:text-blue-200 block mb-1">Assign Contact To</label>
-                <select
-                  value={selectedStep.assignedUserId || ""}
-                  onChange={(e) => {
-                    const u = users.find((usr) => usr.id === e.target.value);
-                    handleUpdateSelectedStep({
-                      assignedUserId: e.target.value,
-                      assignedUserName: u?.name || "Admin",
-                    });
-                  }}
-                  className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
-                >
-                  <option value="">-- Select Team Member --</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                  ))}
-                </select>
-              </div>
-            )}
+                {/* E. TAG CONFIG */}
+                {(selectedStep.actionType === "ADD_TAG" || selectedStep.actionType === "REMOVE_TAG") && (
+                  <div className="space-y-3 p-3.5 bg-violet-50/50 border border-violet-200 rounded-xl dark:bg-violet-950/20 dark:border-violet-800">
+                    <label className="font-semibold text-violet-900 dark:text-violet-200 block mb-1">Tag Name</label>
+                    <Input
+                      value={selectedStep.tag || ""}
+                      onChange={(e) => handleUpdateSelectedStep({ tag: e.target.value })}
+                      placeholder="e.g. Hot Lead, Consultation, VIP"
+                    />
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {["Hot Lead", "Inbound", "Consultation", "VIP", "Follow-up", "Cold"].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => handleUpdateSelectedStep({ tag: preset })}
+                          className="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] text-slate-600 hover:border-violet-400 cursor-pointer dark:bg-slate-900"
+                        >
+                          #{preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-            {/* G. IF/ELSE CONDITION CONFIG */}
-            {selectedStep.actionType === "IF_ELSE" && (
-              <div className="space-y-3 p-3.5 bg-purple-50/50 border border-purple-200 rounded-xl dark:bg-purple-950/20 dark:border-purple-800">
-                <div>
-                  <label className="font-semibold text-purple-900 dark:text-purple-200 block mb-1">Condition Field</label>
-                  <select
-                    value={selectedStep.conditionField || "replied"}
-                    onChange={(e) => handleUpdateSelectedStep({ conditionField: e.target.value as any })}
-                    className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
-                  >
-                    <option value="replied">Customer Replied to Message</option>
-                    <option value="status">Lead Status</option>
-                    <option value="tag">Contact Has Tag</option>
-                    <option value="channel">Channel is WhatsApp</option>
-                  </select>
-                </div>
+                {/* F. ASSIGN USER CONFIG */}
+                {selectedStep.actionType === "ASSIGN_USER" && (
+                  <div className="space-y-3 p-3.5 bg-blue-50/50 border border-blue-200 rounded-xl dark:bg-blue-950/20 dark:border-blue-800">
+                    <label className="font-semibold text-blue-900 dark:text-blue-200 block mb-1">Assign Contact To</label>
+                    <select
+                      value={selectedStep.assignedUserId || ""}
+                      onChange={(e) => {
+                        const u = users.find((usr) => usr.id === e.target.value);
+                        handleUpdateSelectedStep({
+                          assignedUserId: e.target.value,
+                          assignedUserName: u?.name || "Admin",
+                        });
+                      }}
+                      className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
+                    >
+                      <option value="">-- Select Team Member --</option>
+                      {users.map((u) => (
+                        <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-                <div>
-                  <label className="font-semibold text-purple-900 dark:text-purple-200 block mb-1">Operator</label>
-                  <select
-                    value={selectedStep.conditionOperator || "is_true"}
-                    onChange={(e) => handleUpdateSelectedStep({ conditionOperator: e.target.value as any })}
-                    className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
-                  >
-                    <option value="is_true">Is True (Yes)</option>
-                    <option value="is_false">Is False (No)</option>
-                    <option value="equals">Equals</option>
-                    <option value="contains">Contains</option>
-                  </select>
-                </div>
-              </div>
+                {/* G. IF/ELSE CONDITION CONFIG */}
+                {selectedStep.actionType === "IF_ELSE" && (
+                  <div className="space-y-3 p-3.5 bg-purple-50/50 border border-purple-200 rounded-xl dark:bg-purple-950/20 dark:border-purple-800">
+                    <div>
+                      <label className="font-semibold text-purple-900 dark:text-purple-200 block mb-1">Condition Field</label>
+                      <select
+                        value={selectedStep.conditionField || "replied"}
+                        onChange={(e) => handleUpdateSelectedStep({ conditionField: e.target.value as any })}
+                        className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
+                      >
+                        <option value="replied">Customer Replied to Message</option>
+                        <option value="status">Lead Status</option>
+                        <option value="tag">Contact Has Tag</option>
+                        <option value="channel">Channel is WhatsApp</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-purple-900 dark:text-purple-200 block mb-1">Operator</label>
+                      <select
+                        value={selectedStep.conditionOperator || "is_true"}
+                        onChange={(e) => handleUpdateSelectedStep({ conditionOperator: e.target.value as any })}
+                        className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
+                      >
+                        <option value="is_true">Is True (Yes)</option>
+                        <option value="is_false">Is False (No)</option>
+                        <option value="equals">Equals</option>
+                        <option value="contains">Contains</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -1239,7 +1680,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
               className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5"
             >
               <Save className="h-3.5 w-3.5" />
-              <span>Save Action</span>
+              <span>Done</span>
             </Button>
           </div>
         </div>
@@ -1247,14 +1688,14 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
 
       {/* 6. TRIGGER CONFIGURATION DRAWER */}
       {isTriggerDrawerOpen && (
-        <div className="fixed inset-y-0 right-0 w-full sm:w-[450px] bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-50 flex flex-col animate-in slide-in-from-right duration-200">
+        <div className="fixed inset-y-0 right-0 w-full sm:w-[480px] bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 z-50 flex flex-col animate-in slide-in-from-right duration-200">
           <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center">
                 <Zap className="h-4 w-4" />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-slate-900 dark:text-white">Workflow Trigger</h3>
+                <h3 className="text-xs font-bold text-slate-900 dark:text-white">Configure Workflow Trigger</h3>
                 <span className="text-[10px] text-slate-500">WHEN THIS EVENT OCCURS...</span>
               </div>
             </div>
@@ -1273,6 +1714,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                 value={trigger}
                 onChange={(e) => {
                   setTrigger(e.target.value);
+                  markDirty();
                   if (e.target.value.includes("Form")) setTriggerType("FORM_SUBMITTED");
                   else if (e.target.value.includes("Tag")) setTriggerType("TAG_ADDED");
                   else if (e.target.value.includes("Status")) setTriggerType("STATUS_CHANGED");
@@ -1297,6 +1739,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                   onChange={(e) => {
                     const f = forms.find((frm) => frm.id === e.target.value);
                     setTriggerConfig({ ...triggerConfig, formId: e.target.value, formName: f?.title });
+                    markDirty();
                   }}
                   className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
                 >
@@ -1397,7 +1840,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                 </div>
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white group-hover:text-sky-700">Send Email</h4>
-                  <p className="text-[11px] text-slate-500 mt-0.5">Send customized email or select marketing template.</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Send customized email with chosen sender address.</p>
                 </div>
               </div>
 
@@ -1489,7 +1932,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
         </div>
       )}
 
-      {/* 8. TEST SIMULATION MODAL */}
+      {/* 8. FULL SIMULATION MODAL */}
       {isTestModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-4 text-xs animate-in zoom-in-95 duration-200">
@@ -1518,7 +1961,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                 onChange={(e) => setTestLeadId(e.target.value)}
                 className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
               >
-                <option value="">-- Sample Prospect (John Doe) --</option>
+                <option value="">-- Sample Prospect (Aman Sharma) --</option>
                 {scopedLeads.map((l) => (
                   <option key={l.id} value={l.id}>{l.name} ({l.phone || l.email})</option>
                 ))}

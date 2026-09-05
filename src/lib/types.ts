@@ -190,8 +190,13 @@ export interface WorkflowStep {
   actionTitle: string;
   description?: string;
 
-  // Communication
+  // Communication & Sender
   channel?: TemplateChannel | "SMS";
+  sendAsAccount?: "SMTP_DEFAULT" | "LOGGED_IN_USER" | "ASSIGNED_USER" | "CUSTOM";
+  fromName?: string;
+  fromEmail?: string;
+  replyToEmail?: string;
+  whatsappSenderNumberId?: string;
   templateId?: string;
   templateName?: string;
   customSubject?: string;
