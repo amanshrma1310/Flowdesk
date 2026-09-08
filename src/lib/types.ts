@@ -88,6 +88,8 @@ export interface Lead {
   source: string;
   status: LeadStatus;
   notes?: string;
+  photoUrl?: string;
+  photoType?: "card" | "person" | "document";
   customData?: Record<string, string>;
   tags: string[];
   folderId?: string;

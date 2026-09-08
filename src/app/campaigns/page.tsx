@@ -161,7 +161,7 @@ export default function CampaignsPage() {
                   </div>
 
                   {/* Delivery & Response Metrics (PDF Pages 4, 8, 10) */}
-                  <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-xl border border-slate-100 dark:bg-slate-800 dark:border-slate-700 text-xs">
+                  <div className="flex flex-wrap items-center justify-between sm:justify-start gap-3 sm:gap-4 bg-slate-50 p-3 rounded-xl border border-slate-100 dark:bg-slate-800 dark:border-slate-700 text-xs">
                     <div className="text-center">
                       <span className="text-[10px] text-slate-400 block font-bold uppercase">Sent</span>
                       <strong className="text-slate-900 dark:text-white font-bold">{camp.sentCount}</strong>

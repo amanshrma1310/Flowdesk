@@ -57,7 +57,8 @@ interface FlowDeskStoreContextType {
 
   // Leads & Folders
   addLead: (data: Partial<Lead>) => Lead;
-  bulkImportLeads: (leadRows: Array<{ name: string; company?: string; email?: string; phone?: string; whatsApp?: string; source?: string }>, folderName: string) => { importedCount: number; folderId: string };
+  updateLead: (leadId: string, data: Partial<Lead>) => void;
+  bulkImportLeads: (leadRows: Array<{ name: string; company?: string; email?: string; phone?: string; whatsApp?: string; source?: string; photoUrl?: string; photoType?: "card" | "person" | "document" }>, folderName: string) => { importedCount: number; folderId: string };
   updateLeadStatus: (leadId: string, status: LeadStatus) => void;
   deleteLead: (leadId: string) => void;
   addLeadActivity: (leadId: string, activity: Omit<LeadActivity, "id" | "timestamp">) => void;
@@ -874,6 +875,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       source: data.source || "Manual Entry",
       status: data.status || "New",
       notes: data.notes || "",
+      photoUrl: data.photoUrl,
+      photoType: data.photoType,
       tags: data.tags || ["Lead"],
       folderId: data.folderId,
       folderName: data.folderName,
@@ -907,7 +910,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
 
   // Bulk Import Leads
   const bulkImportLeads = (
-    leadRows: Array<{ name: string; company?: string; email?: string; phone?: string; whatsApp?: string; source?: string }>,
+    leadRows: Array<{ name: string; company?: string; email?: string; phone?: string; whatsApp?: string; source?: string; photoUrl?: string; photoType?: "card" | "person" | "document" }>,
     folderName: string
   ): { importedCount: number; folderId: string } => {
     if (!organization || !currentUser) throw new Error("Unauthenticated");
@@ -940,6 +943,8 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         whatsApp: row.whatsApp || row.phone || "",
         source: row.source || "Excel/CSV Upload",
         status: "New",
+        photoUrl: row.photoUrl,
+        photoType: row.photoType,
         tags: ["Imported", folderName],
         folderId,
         folderName: newFolder.name,
@@ -986,6 +991,23 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
             actor: currentUser?.name || "System",
           };
           return { ...l, status, updatedAt: new Date().toISOString(), activities: [act, ...(l.activities || [])] };
+        }
+        return l;
+      });
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
+      return updated;
+    });
+  };
+
+  const updateLead = (leadId: string, data: Partial<Lead>) => {
+    setLeads((prev) => {
+      const updated = prev.map((l) => {
+        if (l.id === leadId) {
+          return {
+            ...l,
+            ...data,
+            updatedAt: new Date().toISOString(),
+          };
         }
         return l;
       });
@@ -1475,6 +1497,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         toggleUserActive,
         updateUserPermissions,
         addLead,
+        updateLead,
         bulkImportLeads,
         updateLeadStatus,
         deleteLead,

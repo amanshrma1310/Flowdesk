@@ -48,7 +48,7 @@ export default function LeadResponsesPage() {
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 text-xs bg-slate-100 p-1 rounded-xl dark:bg-slate-800">
+        <div className="flex items-center gap-1.5 text-xs bg-slate-100 p-1 rounded-xl dark:bg-slate-800 overflow-x-auto max-w-full">
           <button
             onClick={() => setFilter("ALL")}
             className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${

@@ -439,9 +439,17 @@ export default function DashboardPage() {
                   {scopedLeads.slice(0, 5).map((lead) => (
                     <div key={lead.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                       <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center dark:bg-indigo-950 dark:text-indigo-300">
-                          {lead.name.slice(0, 2).toUpperCase()}
-                        </div>
+                        {lead.photoUrl ? (
+                          <img
+                            src={lead.photoUrl}
+                            alt={lead.name}
+                            className="h-8 w-8 rounded-lg object-cover border border-indigo-200 shrink-0"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 rounded-full bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center dark:bg-indigo-950 dark:text-indigo-300 shrink-0">
+                            {lead.name.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
                         <div>
                           <div className="flex items-center gap-2">
                             <Link href={`/contacts/${lead.id}`} className="font-bold text-slate-900 hover:text-indigo-600 dark:text-white">
