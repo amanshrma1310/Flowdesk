@@ -57,9 +57,13 @@ export function AdminOnboardingModal() {
   const [signInPassword, setSignInPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Captcha State
-  const [captcha, setCaptcha] = useState<{ text: string; answer: string }>(generateCaptcha());
+  // Captcha State (initialized consistently to avoid server/client hydration difference)
+  const [captcha, setCaptcha] = useState<{ text: string; answer: string }>({ text: "What is 4 + 3?", answer: "7" });
   const [captchaInput, setCaptchaInput] = useState("");
+
+  useEffect(() => {
+    setCaptcha(generateCaptcha());
+  }, []);
 
   // Create Agency Fields (Admin Only)
   const [agencyName, setAgencyName] = useState("");
@@ -301,7 +305,7 @@ export function AdminOnboardingModal() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="px-3 py-1.5 bg-indigo-950/70 border border-indigo-800 text-indigo-200 font-mono font-bold rounded-lg text-xs select-none">
+                  <div suppressHydrationWarning className="px-3 py-1.5 bg-indigo-950/70 border border-indigo-800 text-indigo-200 font-mono font-bold rounded-lg text-xs select-none">
                     {captcha.text}
                   </div>
                   <Input
