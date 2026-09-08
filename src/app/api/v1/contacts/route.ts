@@ -33,6 +33,8 @@ export async function POST(req: NextRequest) {
       source: body.source || "Direct API Inbound",
       status: body.status || "New",
       notes: body.notes || "",
+      photoUrl: body.photoUrl,
+      photoType: body.photoType,
       tags: body.tags || ["Inbound Lead"],
       folderId: body.folderId,
       folderName: body.folderName,

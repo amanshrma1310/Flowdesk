@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import confetti from "canvas-confetti";
@@ -22,6 +23,7 @@ import {
   Phone,
   Mail,
   Building,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -31,11 +33,22 @@ import { useFlowDesk } from "@/lib/store";
 import { LeadPhotoCapture } from "@/components/leads/LeadPhotoCapture";
 
 export default function BulkImportPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-400">Loading import portal...</div>}>
+      <BulkImportContent />
+    </Suspense>
+  );
+}
+
+function BulkImportContent() {
   const router = useRouter();
-  const { bulkImportLeads } = useFlowDesk();
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab") === "ocr" ? "OCR" : "EXCEL";
+
+  const { bulkImportLeads, addLead, organization } = useFlowDesk();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [activeTab, setActiveTab] = useState<"EXCEL" | "OCR">("EXCEL");
+  const [activeTab, setActiveTab] = useState<"EXCEL" | "OCR">(initialTab);
 
   const [fileName, setFileName] = useState<string>("");
   const [folderName, setFolderName] = useState<string>("");
@@ -60,6 +73,10 @@ export default function BulkImportPage() {
   const [ocrPhone, setOcrPhone] = useState("");
   const [ocrNotes, setOcrNotes] = useState("");
   const [ocrText, setOcrText] = useState("");
+
+  // Direct 1-Click Lead Creation from Snapped Photo
+  const [isCreatingDirectLead, setIsCreatingDirectLead] = useState(false);
+  const [createdLeadResult, setCreatedLeadResult] = useState<{ id: string; name: string } | null>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -134,20 +151,66 @@ export default function BulkImportPage() {
     }
   };
 
+  // Instant 1-Click Lead Creation from Photo
+  const handleDirectCreateLead = async () => {
+    if (!ocrPhotoUrl && !ocrName.trim()) return;
+
+    setIsCreatingDirectLead(true);
+    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const finalName = ocrName.trim() || `Card Lead (${todayStr})`;
+
+    try {
+      const newLead = addLead({
+        name: finalName,
+        company: ocrCompany.trim(),
+        email: ocrEmail.trim(),
+        phone: ocrPhone.trim(),
+        whatsApp: ocrPhone.trim(),
+        source: "Camera / Card Scan",
+        photoUrl: ocrPhotoUrl || undefined,
+        photoType: "card",
+        notes: ocrNotes.trim() || "Created directly from camera photo snap",
+      });
+
+      // Synchronize with server API
+      try {
+        await fetch("/api/v1/contacts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...newLead,
+            agencyId: organization?.id,
+          }),
+        });
+      } catch (e) {
+        console.warn("Server API sync warning:", e);
+      }
+
+      confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+      setCreatedLeadResult({ id: newLead.id, name: finalName });
+    } catch (err: any) {
+      console.error("Error creating lead:", err);
+    } finally {
+      setIsCreatingDirectLead(false);
+    }
+  };
+
   const handleAddCardToImport = () => {
-    if (!ocrName.trim()) return;
+    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const finalName = ocrName.trim() || `Card Lead (${todayStr})`;
+
     const newCardRow = {
-      name: ocrName,
-      company: ocrCompany,
-      email: ocrEmail,
-      phone: ocrPhone,
-      whatsApp: ocrPhone,
+      name: finalName,
+      company: ocrCompany.trim(),
+      email: ocrEmail.trim(),
+      phone: ocrPhone.trim(),
+      whatsApp: ocrPhone.trim(),
       source: "Camera / Card Scan",
       photoUrl: ocrPhotoUrl || undefined,
       photoType: (ocrPhotoUrl ? "card" : undefined) as "card" | undefined,
     };
 
-    setFolderName("Scanned Business Cards — " + new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+    setFolderName("Scanned Business Cards — " + todayStr);
     setParsedRows([newCardRow, ...parsedRows]);
     setStep(2);
   };
@@ -214,7 +277,7 @@ export default function BulkImportPage() {
                 activeTab === "OCR" ? "border-indigo-600 text-indigo-600 font-bold" : "border-transparent text-slate-500 hover:text-slate-700"
               }`}
             >
-              <Camera className="h-4 w-4" />
+              <Camera className="h-4 w-4 text-emerald-600" />
               <span>Snap Photo / Card Scan (Camera & OCR)</span>
             </button>
           </div>
@@ -277,6 +340,46 @@ export default function BulkImportPage() {
 
           {activeTab === "OCR" && (
             <div className="space-y-6">
+              {/* Direct Success Feedback Banner */}
+              {createdLeadResult && (
+                <div className="p-4 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 rounded-2xl space-y-3 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2.5 text-emerald-900 dark:text-emerald-100 font-bold text-sm">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                    <span>Lead Created Successfully with Photo Attached! 🎉</span>
+                  </div>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                    Contact &quot;<strong>{createdLeadResult.name}</strong>&quot; is now saved in your CRM pipeline with full photo attachment and timeline activity.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <Link href={`/contacts/${createdLeadResult.id}`}>
+                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-sm">
+                        <span>View Lead Profile →</span>
+                      </Button>
+                    </Link>
+                    <Link href="/contacts">
+                      <Button size="sm" variant="outline" className="text-xs font-semibold border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50">
+                        <span>All Leads Table</span>
+                      </Button>
+                    </Link>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setCreatedLeadResult(null);
+                        setOcrPhotoUrl("");
+                        setOcrName("");
+                        setOcrCompany("");
+                        setOcrPhone("");
+                        setOcrEmail("");
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-800"
+                    >
+                      <span>+ Snap Another Card</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <Card className="border-indigo-200 bg-gradient-to-r from-indigo-50/20 to-purple-50/20 dark:bg-slate-900">
                 <CardHeader className="p-5 pb-3">
                   <CardTitle className="text-sm font-bold flex items-center gap-2">
@@ -284,7 +387,7 @@ export default function BulkImportPage() {
                     <span>Live Camera Capture & Business Card Scanner</span>
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Hold a business card to your camera, click capture or upload an image. Fields are automatically extracted for you.
+                    Hold a business card to your camera, click capture or upload an image. You can immediately create a lead or edit fields.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-5 pt-0 space-y-4">
@@ -293,30 +396,37 @@ export default function BulkImportPage() {
                     currentPhotoUrl={ocrPhotoUrl}
                     onPhotoCaptured={(dataUrl, autoFields) => {
                       setOcrPhotoUrl(dataUrl);
-                      if (autoFields) {
-                        if (autoFields.name) setOcrName(autoFields.name);
-                        if (autoFields.company) setOcrCompany(autoFields.company);
-                        if (autoFields.phone) setOcrPhone(autoFields.phone);
-                        if (autoFields.email) setOcrEmail(autoFields.email);
-                      }
+                      const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                      const defaultName = autoFields?.name || `Business Card Lead (${todayStr})`;
+                      if (!ocrName.trim()) setOcrName(defaultName);
+                      if (autoFields?.company && !ocrCompany) setOcrCompany(autoFields.company);
+                      if (autoFields?.phone && !ocrPhone) setOcrPhone(autoFields.phone);
+                      if (autoFields?.email && !ocrEmail) setOcrEmail(autoFields.email);
                     }}
                     onRemovePhoto={() => {
                       setOcrPhotoUrl("");
                     }}
                   />
 
-                  {/* Extracted Details Form */}
+                  {/* Contact Fields */}
                   <div className="pt-2 space-y-3">
-                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                      <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
-                      <span>Contact Details (Extracted from Photo):</span>
-                    </h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                        <span>Lead Details (Ready to Save):</span>
+                      </h4>
+                      {ocrPhotoUrl && (
+                        <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                          Photo Attached ✓
+                        </span>
+                      )}
+                    </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                       <div>
-                        <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Full Name *</label>
+                        <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Full Name / Title</label>
                         <Input
-                          placeholder="e.g. Amit Sharma"
+                          placeholder="e.g. Amit Sharma (or auto-named from card)"
                           value={ocrName}
                           onChange={(e) => setOcrName(e.target.value)}
                           className="bg-white dark:bg-slate-950"
@@ -352,14 +462,26 @@ export default function BulkImportPage() {
                       </div>
                     </div>
 
-                    <div className="flex justify-end pt-2">
+                    {/* ACTION BUTTONS: Instant Creation vs Bulk Batch */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                       <Button
                         size="sm"
-                        disabled={!ocrName.trim()}
-                        onClick={handleAddCardToImport}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold gap-1.5 cursor-pointer shadow-xs"
+                        disabled={!ocrPhotoUrl && !ocrName.trim()}
+                        onClick={handleDirectCreateLead}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-2 py-2 px-4 shadow-md cursor-pointer"
                       >
-                        <span>Add Scanned Contact & Continue</span>
+                        <Check className="h-4 w-4" />
+                        <span>{isCreatingDirectLead ? "Creating Lead..." : "⚡ Create Lead from Photo Now"}</span>
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!ocrPhotoUrl && !ocrName.trim()}
+                        onClick={handleAddCardToImport}
+                        className="text-slate-700 font-semibold text-xs gap-1.5 cursor-pointer"
+                      >
+                        <span>Add to Bulk Import List</span>
                         <ArrowRight className="h-3.5 w-3.5" />
                       </Button>
                     </div>

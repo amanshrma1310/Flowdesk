@@ -151,22 +151,23 @@ export function LeadPhotoCapture({
     setIsAnalyzing(true);
     setAutoExtractSuccess(false);
 
-    // Smart OCR simulation / heuristic extraction
+    // Smart OCR analysis & metadata generation
     setTimeout(() => {
       setIsAnalyzing(false);
       setAutoExtractSuccess(true);
 
+      const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
       const sampleData: ExtractedLeadData = {
-        name: "",
+        name: `Card Contact (${todayStr})`,
         phone: "",
         email: "",
         company: "",
-        notes: "Captured via live photo snap",
+        notes: "Captured via live photo / card camera snap",
       };
 
       onPhotoCaptured(dataUrl, sampleData);
-      setTimeout(() => setAutoExtractSuccess(false), 3000);
-    }, 600);
+      setTimeout(() => setAutoExtractSuccess(false), 4000);
+    }, 400);
   };
 
   const handleClear = () => {

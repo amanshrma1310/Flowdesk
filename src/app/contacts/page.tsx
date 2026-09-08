@@ -12,6 +12,7 @@ import {
   Send,
   Building,
   CheckCircle2,
+  Check,
   FolderKanban,
   Zap,
   ArrowRight,
@@ -119,12 +120,13 @@ export default function LeadsPage() {
 
   const handleCreateLead = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!leadName.trim()) return;
+    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const finalName = leadName.trim() || (photoUrl ? `Card Lead (${todayStr})` : "New Lead");
 
     const folderObj = folders.find((f) => f.id === selectedFolderId);
 
     const createdLead = addLead({
-      name: leadName,
+      name: finalName,
       company,
       email,
       phone,
@@ -137,6 +139,18 @@ export default function LeadsPage() {
       folderId: selectedFolderId || undefined,
       folderName: folderObj?.name,
     });
+
+    // Also persist to API
+    try {
+      fetch("/api/v1/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...createdLead,
+          agencyId: currentUser?.role,
+        }),
+      }).catch(() => {});
+    } catch (err) {}
 
     if (selectedWorkflowId) {
       addLeadToWorkflow(createdLead.id, selectedWorkflowId);
@@ -686,8 +700,10 @@ export default function LeadsPage() {
                   currentPhotoUrl={photoUrl}
                   onPhotoCaptured={(dataUrl, autoFields) => {
                     setPhotoUrl(dataUrl);
+                    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                    const defaultName = autoFields?.name || `Business Card Lead (${todayStr})`;
+                    if (!leadName.trim()) setLeadName(defaultName);
                     if (autoFields) {
-                      if (autoFields.name && !leadName) setLeadName(autoFields.name);
                       if (autoFields.phone && !phone) {
                         setPhone(autoFields.phone);
                         if (!whatsApp) setWhatsApp(autoFields.phone);
@@ -701,32 +717,43 @@ export default function LeadsPage() {
               </div>
             )}
 
-            {photoUrl && !showPhotoSection && (
-              <div className="flex items-center justify-between p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <img src={photoUrl} alt="Attached" className="h-10 w-10 object-cover rounded-lg border border-emerald-300" />
-                  <div>
-                    <p className="text-xs font-bold text-emerald-800 dark:text-emerald-200">Lead Photo Attached</p>
-                    <p className="text-[10px] text-emerald-600">Saved with lead profile</p>
+            {photoUrl && (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <img src={photoUrl} alt="Attached" className="h-10 w-10 object-cover rounded-lg border border-emerald-300 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-emerald-800 dark:text-emerald-200 truncate">Photo Attached ✓ Ready to Save</p>
+                    <p className="text-[10px] text-emerald-600 truncate">Will save as: &quot;{leadName || "Business Card Lead"}&quot;</p>
                   </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setPhotoUrl("")}
-                  className="h-7 text-xs text-rose-600 hover:text-rose-700"
-                >
-                  Remove
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleCreateLead}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1 shadow-xs cursor-pointer"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    <span>Create Lead Now</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPhotoUrl("")}
+                    className="h-7 text-xs text-rose-600 hover:text-rose-700"
+                  >
+                    Remove
+                  </Button>
+                </div>
               </div>
             )}
 
             <form onSubmit={handleCreateLead} className="space-y-3 pt-2">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Full Name *</label>
-                  <Input required placeholder="e.g. John Smith" value={leadName} onChange={(e) => setLeadName(e.target.value)} />
+                  <label className="font-semibold text-slate-700 block mb-1">Full Name {photoUrl ? "(Optional if card snapped)" : "*"}</label>
+                  <Input required={!photoUrl} placeholder="e.g. John Smith" value={leadName} onChange={(e) => setLeadName(e.target.value)} />
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Company Name</label>
