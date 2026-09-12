@@ -61,6 +61,9 @@ interface FlowDeskStoreContextType {
   bulkImportLeads: (leadRows: Array<{ name: string; company?: string; email?: string; phone?: string; whatsApp?: string; source?: string; photoUrl?: string; photoType?: "card" | "person" | "document" }>, folderName: string) => { importedCount: number; folderId: string };
   updateLeadStatus: (leadId: string, status: LeadStatus) => void;
   deleteLead: (leadId: string) => void;
+  bulkDeleteLeads: (leadIds: string[]) => void;
+  bulkUpdateLeadStatus: (leadIds: string[], status: LeadStatus) => void;
+  bulkMoveLeadsToFolder: (leadIds: string[], folderId: string, folderName?: string) => void;
   addLeadActivity: (leadId: string, activity: Omit<LeadActivity, "id" | "timestamp">) => void;
   addLeadToWorkflow: (leadId: string, workflowId: string) => { success: boolean; message: string };
   createFolder: (name: string) => LeadFolder;
@@ -1022,6 +1025,72 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
       return updated;
     });
+    fetch("/api/v1/contacts", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: leadId }),
+    }).catch(() => {});
+  };
+
+  const bulkDeleteLeads = (leadIds: string[]) => {
+    const idSet = new Set(leadIds);
+    setLeads((prev) => {
+      const updated = prev.filter((l) => !idSet.has(l.id));
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
+      return updated;
+    });
+    fetch("/api/v1/contacts", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: leadIds }),
+    }).catch(() => {});
+  };
+
+  const bulkUpdateLeadStatus = (leadIds: string[], status: LeadStatus) => {
+    const idSet = new Set(leadIds);
+    setLeads((prev) => {
+      const updated = prev.map((l) => {
+        if (idSet.has(l.id)) {
+          const newAct = {
+            id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+            action: `Bulk Status Update: ${status}`,
+            channel: "System" as const,
+            details: `Status changed in bulk to ${status}`,
+            actor: currentUser?.name || "User",
+          };
+          return {
+            ...l,
+            status,
+            updatedAt: new Date().toISOString(),
+            activities: [newAct, ...(l.activities || [])],
+          };
+        }
+        return l;
+      });
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
+      return updated;
+    });
+  };
+
+  const bulkMoveLeadsToFolder = (leadIds: string[], folderId: string, folderName?: string) => {
+    const idSet = new Set(leadIds);
+    const resolvedName = folderName || folders.find((f) => f.id === folderId)?.name;
+    setLeads((prev) => {
+      const updated = prev.map((l) => {
+        if (idSet.has(l.id)) {
+          return {
+            ...l,
+            folderId: folderId || undefined,
+            folderName: resolvedName || undefined,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return l;
+      });
+      persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
+      return updated;
+    });
   };
 
   const addLeadToWorkflow = (leadId: string, workflowId: string): { success: boolean; message: string } => {
@@ -1501,6 +1570,9 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         bulkImportLeads,
         updateLeadStatus,
         deleteLead,
+        bulkDeleteLeads,
+        bulkUpdateLeadStatus,
+        bulkMoveLeadsToFolder,
         addLeadActivity,
         addLeadToWorkflow,
         createFolder,

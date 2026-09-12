@@ -168,3 +168,29 @@ export function getAllServerLeads(agencyCode?: string): any[] {
   }
   return store.globalLeads || [];
 }
+
+// Delete single lead from server store
+export function deleteLeadFromServer(leadId: string) {
+  const store = readStore();
+  store.globalLeads = (store.globalLeads || []).filter((l: any) => l.id !== leadId);
+  for (const agency of Object.values(store.agencies)) {
+    if (agency.leads && Array.isArray(agency.leads)) {
+      agency.leads = agency.leads.filter((l: any) => l.id !== leadId);
+    }
+  }
+  writeStore(store);
+}
+
+// Bulk delete leads from server store
+export function deleteLeadsFromServer(leadIds: string[]) {
+  const store = readStore();
+  const idSet = new Set(leadIds);
+  store.globalLeads = (store.globalLeads || []).filter((l: any) => !idSet.has(l.id));
+  for (const agency of Object.values(store.agencies)) {
+    if (agency.leads && Array.isArray(agency.leads)) {
+      agency.leads = agency.leads.filter((l: any) => !idSet.has(l.id));
+    }
+  }
+  writeStore(store);
+}
+

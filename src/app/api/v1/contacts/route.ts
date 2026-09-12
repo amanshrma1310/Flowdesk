@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllServerLeads, addLeadToServer, getAgencyByJoinCode } from "@/lib/serverStore";
+import { getAllServerLeads, addLeadToServer, getAgencyByJoinCode, deleteLeadFromServer, deleteLeadsFromServer } from "@/lib/serverStore";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -73,4 +73,22 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   return POST(req);
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, ids } = body;
+    if (id) {
+      deleteLeadFromServer(id);
+      return NextResponse.json({ success: true, message: `Lead ${id} deleted successfully` });
+    }
+    if (ids && Array.isArray(ids)) {
+      deleteLeadsFromServer(ids);
+      return NextResponse.json({ success: true, message: `${ids.length} leads deleted successfully` });
+    }
+    return NextResponse.json({ success: false, error: "Missing id or ids in request body" }, { status: 400 });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
 }

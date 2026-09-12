@@ -63,6 +63,9 @@ export default function LeadsPage() {
     addLead,
     updateLead,
     deleteLead,
+    bulkDeleteLeads,
+    bulkUpdateLeadStatus,
+    bulkMoveLeadsToFolder,
     updateLeadStatus,
     addLeadToWorkflow,
     addLeadActivity,
@@ -104,6 +107,20 @@ export default function LeadsPage() {
   const [newAttachedPhotoType, setNewAttachedPhotoType] = useState<"card" | "person" | "document">("card");
   const [pendingAttachFields, setPendingAttachFields] = useState<any | null>(null);
 
+  // Bulk Selection & Actions state
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkStatusModalOpen, setIsBulkStatusModalOpen] = useState(false);
+  const [isBulkFolderModalOpen, setIsBulkFolderModalOpen] = useState(false);
+  const [isBulkWorkflowModalOpen, setIsBulkWorkflowModalOpen] = useState(false);
+  const [selectedBulkStatus, setSelectedBulkStatus] = useState<LeadStatus>("Contacted");
+  const [selectedBulkFolderId, setSelectedBulkFolderId] = useState("");
+  const [selectedBulkWorkflowId, setSelectedBulkWorkflowId] = useState(workflows[0]?.id || "");
+  const [bulkAlert, setBulkAlert] = useState<{ type: "success" | "info"; message: string } | null>(null);
+
+  // Single Lead Delete Confirmation modal
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
+
   const filteredLeads = useMemo(() => {
     return scopedLeads.filter((lead) => {
       const matchesSearch =
@@ -118,6 +135,84 @@ export default function LeadsPage() {
       return matchesSearch && matchesStatus && matchesFolder;
     });
   }, [scopedLeads, searchQuery, selectedStatus, selectedFolder]);
+
+  // Bulk Selection Helpers
+  const isAllSelected = filteredLeads.length > 0 && selectedIds.length === filteredLeads.length;
+  const isSomeSelected = selectedIds.length > 0 && selectedIds.length < filteredLeads.length;
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredLeads.map((l) => l.id));
+    }
+  };
+
+  const toggleSelectOne = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const clearSelection = () => {
+    setSelectedIds([]);
+  };
+
+  const handleExecuteBulkDelete = () => {
+    if (selectedIds.length === 0) return;
+    const count = selectedIds.length;
+    bulkDeleteLeads(selectedIds);
+    setSelectedIds([]);
+    setIsBulkDeleteModalOpen(false);
+    setBulkAlert({ type: "success", message: `Successfully deleted ${count} leads.` });
+    setTimeout(() => setBulkAlert(null), 4000);
+  };
+
+  const handleExecuteBulkStatus = () => {
+    if (selectedIds.length === 0) return;
+    bulkUpdateLeadStatus(selectedIds, selectedBulkStatus);
+    const count = selectedIds.length;
+    setSelectedIds([]);
+    setIsBulkStatusModalOpen(false);
+    setBulkAlert({ type: "success", message: `Updated ${count} leads to status "${selectedBulkStatus}".` });
+    setTimeout(() => setBulkAlert(null), 4000);
+  };
+
+  const handleExecuteBulkFolder = () => {
+    if (selectedIds.length === 0) return;
+    const folderObj = folders.find((f) => f.id === selectedBulkFolderId);
+    bulkMoveLeadsToFolder(selectedIds, selectedBulkFolderId, folderObj?.name);
+    const count = selectedIds.length;
+    setSelectedIds([]);
+    setIsBulkFolderModalOpen(false);
+    setBulkAlert({ type: "success", message: `Moved ${count} leads to folder "${folderObj?.name || "General"}".` });
+    setTimeout(() => setBulkAlert(null), 4000);
+  };
+
+  const handleExecuteBulkWorkflow = () => {
+    if (selectedIds.length === 0 || !selectedBulkWorkflowId) return;
+    let enrolled = 0;
+    selectedIds.forEach((id) => {
+      const res = addLeadToWorkflow(id, selectedBulkWorkflowId);
+      if (res.success) enrolled++;
+    });
+    const wfObj = workflows.find((w) => w.id === selectedBulkWorkflowId);
+    setSelectedIds([]);
+    setIsBulkWorkflowModalOpen(false);
+    setBulkAlert({ type: "success", message: `Enrolled ${enrolled} leads into workflow "${wfObj?.name || "Workflow"}".` });
+    setTimeout(() => setBulkAlert(null), 4000);
+  };
+
+  const handleExecuteSingleDelete = () => {
+    if (!leadToDelete) return;
+    const name = leadToDelete.name;
+    deleteLead(leadToDelete.id);
+    setSelectedIds((prev) => prev.filter((id) => id !== leadToDelete.id));
+    setLeadToDelete(null);
+    setBulkAlert({ type: "success", message: `Lead "${name}" was permanently deleted.` });
+    setTimeout(() => setBulkAlert(null), 4000);
+  };
 
   const handleCreateLead = (e: React.FormEvent) => {
     e.preventDefault();
@@ -299,6 +394,79 @@ export default function LeadsPage() {
         </div>
       </div>
 
+      {/* Alert Banner for Bulk or Delete Actions */}
+      {bulkAlert && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-200 flex items-center justify-between shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 font-semibold">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>{bulkAlert.message}</span>
+          </div>
+          <button onClick={() => setBulkAlert(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer font-bold">✕</button>
+        </div>
+      )}
+
+      {/* Floating / Sticky Bulk Actions Toolbar */}
+      {selectedIds.length > 0 && (
+        <div className="fixed bottom-6 inset-x-4 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 z-50 bg-slate-950 text-white rounded-2xl shadow-2xl p-3 sm:px-5 sm:py-3 border border-slate-700 flex flex-wrap items-center justify-between gap-3 animate-in slide-in-from-bottom-5 duration-200">
+          <div className="flex items-center gap-3">
+            <div className="h-6 px-2 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+              {selectedIds.length}
+            </div>
+            <span className="text-xs font-semibold text-slate-200">
+              {selectedIds.length === 1 ? "1 lead selected" : `${selectedIds.length} leads selected`}
+            </span>
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
+            >
+              Deselect All
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIsBulkStatusModalOpen(true)}
+              className="h-8 text-xs font-semibold bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-white gap-1.5 cursor-pointer"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+              <span>Update Status</span>
+            </Button>
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIsBulkFolderModalOpen(true)}
+              className="h-8 text-xs font-semibold bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-white gap-1.5 cursor-pointer"
+            >
+              <FolderKanban className="h-3.5 w-3.5 text-amber-400" />
+              <span>Move Folder</span>
+            </Button>
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIsBulkWorkflowModalOpen(true)}
+              className="h-8 text-xs font-semibold bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-white gap-1.5 cursor-pointer"
+            >
+              <Zap className="h-3.5 w-3.5 text-purple-400" />
+              <span>Workflow</span>
+            </Button>
+
+            <Button
+              size="sm"
+              onClick={() => setIsBulkDeleteModalOpen(true)}
+              className="h-8 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Delete ({selectedIds.length})</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Filter & Search Bar */}
       <Card>
         <CardContent className="p-3 sm:p-4 space-y-3">
@@ -393,11 +561,17 @@ export default function LeadsPage() {
           {/* MOBILE VIEW: Cards layout (visible on sm/xs screens) */}
           <div className="grid grid-cols-1 gap-3 md:hidden">
             {filteredLeads.map((lead) => (
-              <Card key={lead.id} className="border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+              <Card key={lead.id} className={`border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs transition-colors ${selectedIds.includes(lead.id) ? "ring-2 ring-indigo-500 bg-indigo-50/20" : ""}`}>
                 <CardContent className="p-4 space-y-3">
-                  {/* Top Row: Avatar/Photo + Name + Status */}
+                  {/* Top Row: Checkbox + Avatar/Photo + Name + Status */}
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(lead.id)}
+                        onChange={() => toggleSelectOne(lead.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                      />
                       {lead.photoUrl ? (
                         <div
                           onClick={() => setPreviewLead(lead)}
@@ -513,6 +687,16 @@ export default function LeadsPage() {
                           Details →
                         </Button>
                       </Link>
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setLeadToDelete(lead)}
+                        className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                        title="Delete Lead"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                      </Button>
                     </div>
                   </div>
 
@@ -541,7 +725,19 @@ export default function LeadsPage() {
               <table className="w-full text-xs text-left">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/70 text-slate-500 font-semibold uppercase tracking-wider dark:border-slate-800 dark:bg-slate-900/50">
-                    <th className="p-4 pl-5">Lead / Contact</th>
+                    <th className="p-4 pl-5 w-10">
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = isSomeSelected;
+                        }}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        title="Select All"
+                      />
+                    </th>
+                    <th className="p-4 pl-2">Lead / Contact</th>
                     <th className="p-4">Contact Channels</th>
                     <th className="p-4">Folder / Source</th>
                     <th className="p-4">Status</th>
@@ -551,8 +747,21 @@ export default function LeadsPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredLeads.map((lead) => (
-                    <tr key={lead.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                      <td className="p-4 pl-5">
+                    <tr
+                      key={lead.id}
+                      className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors ${
+                        selectedIds.includes(lead.id) ? "bg-indigo-50/40 dark:bg-indigo-950/20" : ""
+                      }`}
+                    >
+                      <td className="p-4 pl-5 w-10" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(lead.id)}
+                          onChange={() => toggleSelectOne(lead.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                      </td>
+                      <td className="p-4 pl-2">
                         <div className="flex items-center gap-3">
                           {/* Photo Thumbnail or Avatar */}
                           {lead.photoUrl ? (
@@ -680,6 +889,16 @@ export default function LeadsPage() {
                               Timeline
                             </Button>
                           </Link>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setLeadToDelete(lead)}
+                            className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                            title="Delete Lead"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -997,6 +1216,224 @@ export default function LeadsPage() {
               </DialogFooter>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 5. BULK DELETE CONFIRMATION DIALOG */}
+      <Dialog open={isBulkDeleteModalOpen} onOpenChange={setIsBulkDeleteModalOpen}>
+        <DialogContent className="max-w-md bg-white dark:bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-rose-600">
+              <Trash2 className="h-5 w-5" />
+              <span>Delete {selectedIds.length} Selected Leads?</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Are you sure you want to permanently delete {selectedIds.length} selected contacts?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-3 bg-rose-50 dark:bg-rose-950/40 rounded-xl border border-rose-200 dark:border-rose-900 text-xs text-rose-800 dark:text-rose-200 space-y-1">
+            <p className="font-bold">This bulk deletion cannot be undone.</p>
+            <p>
+              All {selectedIds.length} selected leads, their card photos, and activity timelines will be permanently removed.
+            </p>
+          </div>
+
+          <DialogFooter className="pt-2 flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setIsBulkDeleteModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleExecuteBulkDelete}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs gap-1.5 shadow-sm cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Yes, Delete {selectedIds.length} Leads</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 6. BULK STATUS UPDATE MODAL */}
+      <Dialog open={isBulkStatusModalOpen} onOpenChange={setIsBulkStatusModalOpen}>
+        <DialogContent className="max-w-md bg-white dark:bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-indigo-600">
+              <Sparkles className="h-5 w-5" />
+              <span>Bulk Update Status ({selectedIds.length} Leads)</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Change pipeline status for all {selectedIds.length} selected leads.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
+                Select New Status:
+              </label>
+              <select
+                value={selectedBulkStatus}
+                onChange={(e) => setSelectedBulkStatus(e.target.value as LeadStatus)}
+                className="w-full text-xs font-semibold rounded-lg px-3 py-2.5 bg-white border border-slate-200 dark:bg-slate-800 shadow-xs"
+              >
+                {ALL_STATUSES.map((st) => (
+                  <option key={st} value={st}>{st}</option>
+                ))}
+              </select>
+            </div>
+
+            <DialogFooter className="pt-2 flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setIsBulkStatusModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleExecuteBulkStatus}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs cursor-pointer"
+              >
+                Update {selectedIds.length} Leads
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 7. BULK MOVE TO FOLDER MODAL */}
+      <Dialog open={isBulkFolderModalOpen} onOpenChange={setIsBulkFolderModalOpen}>
+        <DialogContent className="max-w-md bg-white dark:bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-amber-600">
+              <FolderKanban className="h-5 w-5" />
+              <span>Move to Folder ({selectedIds.length} Leads)</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Assign all {selectedIds.length} selected leads to a folder.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
+                Destination Folder:
+              </label>
+              <select
+                value={selectedBulkFolderId}
+                onChange={(e) => setSelectedBulkFolderId(e.target.value)}
+                className="w-full text-xs font-semibold rounded-lg px-3 py-2.5 bg-white border border-slate-200 dark:bg-slate-800 shadow-xs"
+              >
+                <option value="">General (No Folder)</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name} ({f.leadCount})</option>
+                ))}
+              </select>
+            </div>
+
+            <DialogFooter className="pt-2 flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setIsBulkFolderModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleExecuteBulkFolder}
+                className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs cursor-pointer"
+              >
+                Move {selectedIds.length} Leads
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 8. BULK ENROLL IN WORKFLOW MODAL */}
+      <Dialog open={isBulkWorkflowModalOpen} onOpenChange={setIsBulkWorkflowModalOpen}>
+        <DialogContent className="max-w-md bg-white dark:bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-purple-600">
+              <Zap className="h-5 w-5" />
+              <span>Enroll in Workflow ({selectedIds.length} Leads)</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Add all {selectedIds.length} selected leads to an automation sequence.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
+                Choose Follow-up Workflow:
+              </label>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {workflows.map((wf) => (
+                  <label
+                    key={wf.id}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                      selectedBulkWorkflowId === wf.id
+                        ? "border-purple-600 bg-purple-50/60 text-purple-900 font-bold"
+                        : "border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-xs">
+                      <input
+                        type="radio"
+                        name="bulkWf"
+                        checked={selectedBulkWorkflowId === wf.id}
+                        onChange={() => setSelectedBulkWorkflowId(wf.id)}
+                      />
+                      <span>{wf.name}</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-normal">{wf.steps.length} Steps</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2 flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setIsBulkWorkflowModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleExecuteBulkWorkflow}
+                disabled={!selectedBulkWorkflowId}
+                className="bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs cursor-pointer"
+              >
+                Enroll {selectedIds.length} Leads
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 9. SINGLE LEAD DELETE CONFIRMATION DIALOG */}
+      <Dialog open={!!leadToDelete} onOpenChange={() => setLeadToDelete(null)}>
+        <DialogContent className="max-w-md bg-white dark:bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-rose-600">
+              <Trash2 className="h-5 w-5" />
+              <span>Delete Lead &quot;{leadToDelete?.name}&quot;?</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Are you sure you want to permanently delete this lead?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-3 bg-rose-50 dark:bg-rose-950/40 rounded-xl border border-rose-200 dark:border-rose-900 text-xs text-rose-800 dark:text-rose-200 space-y-1">
+            <p className="font-bold">This action cannot be undone.</p>
+            <p>
+              This will permanently delete <strong>{leadToDelete?.name}</strong> ({leadToDelete?.company || "Individual"}) from your CRM database.
+            </p>
+          </div>
+
+          <DialogFooter className="pt-2 flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setLeadToDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleExecuteSingleDelete}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs gap-1.5 shadow-sm cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Yes, Delete</span>
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

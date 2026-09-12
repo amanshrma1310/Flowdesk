@@ -25,6 +25,7 @@ import {
   Maximize2,
   AlertCircle,
   Edit3,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -60,6 +61,7 @@ export default function LeadProfilePage() {
     templates,
     updateLead,
     updateLeadStatus,
+    deleteLead,
     addLeadActivity,
     addLeadToWorkflow,
     recordResponse,
@@ -88,6 +90,7 @@ export default function LeadProfilePage() {
   const [ocrAlert, setOcrAlert] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [pendingExtractedFields, setPendingExtractedFields] = useState<any | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState({
     name: "",
     company: "",
@@ -98,6 +101,11 @@ export default function LeadProfilePage() {
     status: "New" as LeadStatus,
     notes: "",
   });
+
+  const handleDeleteLead = () => {
+    deleteLead(lead.id);
+    router.push("/contacts");
+  };
 
   if (!lead) {
     return (
@@ -530,6 +538,16 @@ export default function LeadProfilePage() {
               >
                 <MessageSquare className="h-3.5 w-3.5" />
                 <span>Simulate Reply</span>
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsDeleteModalOpen(true)}
+                className="text-xs font-bold gap-1.5 border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 hover:text-rose-800 cursor-pointer"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                <span>Delete Lead</span>
               </Button>
             </div>
           </div>
@@ -1161,6 +1179,47 @@ export default function LeadProfilePage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* DELETE CONFIRMATION DIALOG */}
+      <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
+        <DialogContent className="max-w-md bg-white dark:bg-slate-900">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2 text-rose-600">
+              <Trash2 className="h-5 w-5" />
+              <span>Delete Lead &quot;{lead.name}&quot;?</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Are you sure you want to permanently delete this contact profile?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-3 bg-rose-50 dark:bg-rose-950/40 rounded-xl border border-rose-200 dark:border-rose-900 text-xs text-rose-800 dark:text-rose-200 space-y-1">
+            <p className="font-bold">This action cannot be undone.</p>
+            <p>
+              This will permanently remove <strong>{lead.name}</strong> ({lead.company || "Individual"}), all its card photo attachments, and {lead.activities?.length || 0} communication history items from FlowDesk.
+            </p>
+          </div>
+
+          <DialogFooter className="pt-2 flex gap-2 justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsDeleteModalOpen(false)}
+              className="text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleDeleteLead}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs gap-1.5 shadow-sm cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Yes, Delete Permanently</span>
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
