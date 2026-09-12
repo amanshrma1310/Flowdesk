@@ -193,24 +193,33 @@ function BulkImportContent() {
     overridePhotoUrl?: string
   ) => {
     const photoToUse = overridePhotoUrl || ocrPhotoUrl;
-    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const finalName = (overrideFields?.name || ocrName).trim() || `Card Lead (${todayStr})`;
+    const finalName = (overrideFields?.name || ocrName).trim();
+    const finalPhone = (overrideFields?.phone || ocrPhone).trim();
+    const finalEmail = (overrideFields?.email || ocrEmail).trim();
+    const finalCompany = (overrideFields?.company || ocrCompany).trim();
+    const finalNotes = (overrideFields?.notes || ocrNotes).trim();
 
-    if (!photoToUse && !finalName) return;
+    // STRICT VALIDATION: Refuse to proceed with empty contact data!
+    if (!finalName && !finalPhone && !finalEmail) {
+      console.warn("Refusing to create lead with empty contact information.");
+      return;
+    }
+
+    const leadNameToSave = finalName || (finalPhone ? `Contact (${finalPhone})` : finalEmail);
 
     setIsCreatingDirectLead(true);
 
     try {
       const newLead = addLead({
-        name: finalName,
-        company: (overrideFields?.company ?? ocrCompany).trim(),
-        email: (overrideFields?.email ?? ocrEmail).trim(),
-        phone: (overrideFields?.phone ?? ocrPhone).trim(),
-        whatsApp: (overrideFields?.phone ?? ocrPhone).trim(),
+        name: leadNameToSave,
+        company: finalCompany,
+        email: finalEmail,
+        phone: finalPhone,
+        whatsApp: finalPhone,
         source: "Camera / Card Scan",
         photoUrl: photoToUse || undefined,
         photoType: "card",
-        notes: (overrideFields?.notes ?? ocrNotes).trim() || "Created directly from camera photo snap",
+        notes: finalNotes || "Created directly from camera photo snap",
       });
 
       // Synchronize with server API
@@ -585,22 +594,29 @@ function BulkImportContent() {
 
                     {/* ACTION BUTTONS: Instant Creation vs Bulk Batch */}
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
-                      <Button
-                        size="sm"
-                        disabled={!ocrPhotoUrl && !ocrName.trim()}
-                        onClick={() => handleDirectCreateLead()}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-2 py-2 px-4 shadow-md cursor-pointer"
-                      >
-                        <Check className="h-4 w-4" />
-                        <span>{isCreatingDirectLead ? "Creating Lead..." : "⚡ Create Lead from Photo Now"}</span>
-                      </Button>
+                      {Boolean(ocrName.trim() || ocrPhone.trim() || ocrEmail.trim()) ? (
+                        <Button
+                          size="sm"
+                          disabled={isCreatingDirectLead}
+                          onClick={() => handleDirectCreateLead()}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-2 py-2 px-4 shadow-md cursor-pointer"
+                        >
+                          <Check className="h-4 w-4" />
+                          <span>{isCreatingDirectLead ? "Creating Lead..." : "⚡ Create Lead from Scanned Details"}</span>
+                        </Button>
+                      ) : (
+                        <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          <span>Enter at least a Name or Phone above to create a lead</span>
+                        </div>
+                      )}
 
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={!ocrPhotoUrl && !ocrName.trim()}
+                        disabled={!ocrName.trim() && !ocrPhone.trim() && !ocrEmail.trim()}
                         onClick={handleAddCardToImport}
-                        className="text-slate-700 font-semibold text-xs gap-1.5 cursor-pointer"
+                        className="text-slate-700 font-semibold text-xs gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <span>Add to Bulk Import List</span>
                         <ArrowRight className="h-3.5 w-3.5" />

@@ -216,8 +216,10 @@ export default function LeadsPage() {
 
   const handleCreateLead = (e: React.FormEvent) => {
     e.preventDefault();
-    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const finalName = leadName.trim() || (photoUrl ? `Card Lead (${todayStr})` : "New Lead");
+    const finalName = leadName.trim() || (phone.trim() ? `Contact (${phone.trim()})` : email.trim());
+    if (!finalName) {
+      return;
+    }
 
     const folderObj = folders.find((f) => f.id === selectedFolderId);
 
@@ -947,11 +949,8 @@ export default function LeadsPage() {
                   currentPhotoUrl={photoUrl}
                   onPhotoCaptured={(dataUrl, autoFields) => {
                     setPhotoUrl(dataUrl);
-                    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
                     if (autoFields?.name) {
                       setLeadName(autoFields.name);
-                    } else if (!leadName.trim()) {
-                      setLeadName(`Business Card Lead (${todayStr})`);
                     }
                     if (autoFields) {
                       if (autoFields.phone) {

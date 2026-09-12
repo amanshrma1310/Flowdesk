@@ -173,48 +173,58 @@ export function LeadPhotoCapture({
       });
 
       const json = await res.json();
-      if (json.success && json.data) {
-        console.log("[LeadPhotoCapture] OCR Succeeded:", json.data);
-        
-        let extractedName = json.data.name || "";
-        let extractedCompany = json.data.company || "";
-        let extractedPhone = json.data.phone || json.data.whatsApp || "";
-        let extractedEmail = json.data.email || "";
-        const extractedNotes = json.data.notes || json.data.title || "";
+      
+      let extractedName = json.data?.name || "";
+      let extractedCompany = json.data?.company || "";
+      let extractedPhone = json.data?.phone || json.data?.whatsApp || "";
+      let extractedEmail = json.data?.email || "";
+      const extractedNotes = json.data?.notes || json.data?.title || "";
 
-        // Smart fallback from raw text if specific fields missed
-        if (json.rawText) {
-          const rawTextLines = (json.rawText as string).split("\n").map((l: string) => l.trim()).filter(Boolean);
-          if (!extractedName && rawTextLines.length > 0) {
-            extractedName = rawTextLines[0].slice(0, 40);
-          }
-          if (!extractedPhone) {
-            const anyDigits = json.rawText.match(/(?:\+91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}|\b[6-9]\d{9}\b/);
-            if (anyDigits) {
-              const digits = anyDigits[0].replace(/[^\d+]/g, "");
-              extractedPhone = digits.length === 10 ? `+91 ${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
-            }
-          }
-          if (!extractedEmail) {
-            const anyEmail = json.rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-            if (anyEmail) {
-              extractedEmail = anyEmail[0].toLowerCase();
-            }
+      // Smart fallback from raw text if specific fields missed
+      if (json.rawText) {
+        const rawTextLines = (json.rawText as string)
+          .split("\n")
+          .map((l: string) => l.trim())
+          .filter((l: string) => l.length > 2 && !l.toLowerCase().startsWith("card"));
+
+        if (!extractedName && rawTextLines.length > 0) {
+          const cand = rawTextLines[0].slice(0, 40);
+          if (!cand.toLowerCase().includes("card") && !cand.toLowerCase().includes("snap")) {
+            extractedName = cand;
           }
         }
-
-        const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        if (!extractedName) {
-          extractedName = `Card Lead (${todayStr})`;
+        if (!extractedPhone) {
+          const anyDigits = json.rawText.match(/(?:\+91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}|\b[6-9]\d{9}\b/);
+          if (anyDigits) {
+            const digits = anyDigits[0].replace(/[^\d+]/g, "");
+            extractedPhone = digits.length === 10 ? `+91 ${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
+          }
         }
+        if (!extractedEmail) {
+          const anyEmail = json.rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+          if (anyEmail) {
+            extractedEmail = anyEmail[0].toLowerCase();
+          }
+        }
+      }
 
+      // STRICT VALIDATION: Did we actually find real contact info?
+      const hasRealData = Boolean(
+        (extractedName &&
+          !extractedName.toLowerCase().startsWith("card lead") &&
+          !extractedName.toLowerCase().startsWith("card contact")) ||
+        extractedPhone ||
+        extractedEmail
+      );
+
+      if (hasRealData) {
         const extracted: ExtractedLeadData = {
           name: extractedName,
           company: extractedCompany,
           phone: extractedPhone,
           email: extractedEmail,
           notes: extractedNotes || `Scanned from business card (Confidence: ${json.confidence || 75}%)`,
-          title: json.data.title,
+          title: json.data?.title,
           rawText: json.rawText,
           confidence: json.confidence,
         };
@@ -222,35 +232,49 @@ export function LeadPhotoCapture({
         setLastExtracted(extracted);
         setIsAnalyzing(false);
         setAutoExtractSuccess(true);
-        setExtractStatus(`Found: ${extracted.name}${extracted.phone ? ` • ${extracted.phone}` : ""}`);
+        setExtractStatus(`✨ Extracted: ${extracted.name}${extracted.phone ? ` • ${extracted.phone}` : ""}`);
 
         onPhotoCaptured(dataUrl, extracted);
 
-        // Auto-create lead immediately if configured
+        // ONLY auto-create if REAL contact info is present!
         if (autoCreateOnScan && onAutoCreate && (extracted.name || extracted.phone || extracted.email)) {
           onAutoCreate(dataUrl, extracted);
         }
 
-        setTimeout(() => setAutoExtractSuccess(false), 6000);
+        setTimeout(() => setAutoExtractSuccess(false), 8000);
         return;
       }
+
+      // NO real contact data was found in the image!
+      setIsAnalyzing(false);
+      setAutoExtractSuccess(false);
+      setLastExtracted(null);
+      setExtractStatus(
+        "⚠️ No contact text detected. Card may be blurry or out of focus. Hold card steady 8-10 inches from camera, or enter details below."
+      );
+      // Pass empty fields so the form is NOT populated with fake dummy data!
+      onPhotoCaptured(dataUrl, {
+        name: "",
+        phone: "",
+        email: "",
+        company: "",
+        notes: json.rawText ? `Unparsed photo text:\n${json.rawText}` : "",
+      });
+      return;
     } catch (err) {
       console.warn("[LeadPhotoCapture] Server OCR API error:", err);
+      setIsAnalyzing(false);
+      setAutoExtractSuccess(false);
+      setLastExtracted(null);
+      setExtractStatus("⚠️ Scan timed out or connection failed. Please enter details manually or re-scan.");
+      onPhotoCaptured(dataUrl, {
+        name: "",
+        phone: "",
+        email: "",
+        company: "",
+        notes: "",
+      });
     }
-
-    // Fallback if network or OCR fails
-    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const fallbackData: ExtractedLeadData = {
-      name: `Card Contact (${todayStr})`,
-      phone: "",
-      email: "",
-      company: "",
-      notes: "Captured via live photo / card camera snap",
-    };
-
-    setIsAnalyzing(false);
-    setExtractStatus("Photo attached. You can type contact details or click Re-Scan.");
-    onPhotoCaptured(dataUrl, fallbackData);
   };
 
   const handleClear = () => {
