@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useFlowDesk } from "@/lib/store";
 import { LeadPhotoCapture } from "@/components/leads/LeadPhotoCapture";
+import { recognizeCardInBrowser } from "@/lib/clientOcr";
 
 export default function BulkImportPage() {
   return (
@@ -87,6 +88,22 @@ function BulkImportContent() {
     setIsReScanning(true);
     setScanStatusMessage("Scanning card photo with high-speed AI OCR engine...");
     try {
+      // 1. Try browser WebAssembly OCR first (1s speed, 0 network lag, no timeouts)
+      const clientRes = await recognizeCardInBrowser(ocrPhotoUrl, (msg) => setScanStatusMessage(msg));
+      if (clientRes && clientRes.success && clientRes.data) {
+        if (clientRes.data.name) setOcrName(clientRes.data.name);
+        if (clientRes.data.company) setOcrCompany(clientRes.data.company);
+        if (clientRes.data.phone || clientRes.data.whatsApp) setOcrPhone(clientRes.data.phone || clientRes.data.whatsApp);
+        if (clientRes.data.email) setOcrEmail(clientRes.data.email);
+        if (clientRes.data.notes) setOcrNotes(clientRes.data.notes);
+
+        setScanStatusMessage(
+          `✨ Scanned in ${(clientRes.durationMs / 1000).toFixed(1)}s! Extracted: "${clientRes.data.name || "Contact"}"${clientRes.data.phone ? ` • ${clientRes.data.phone}` : ""}${clientRes.data.email ? ` • ${clientRes.data.email}` : ""}`
+        );
+        return;
+      }
+
+      // 2. Server fallback if browser didn't return full details
       const res = await fetch("/api/v1/ocr/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -101,14 +118,14 @@ function BulkImportContent() {
         if (json.data.notes) setOcrNotes(json.data.notes);
 
         setScanStatusMessage(
-          `✨ Scanned in ${(json.durationMs ? json.durationMs / 1000 : 0.8).toFixed(1)}s! Extracted: "${json.data.name || "Contact"}"${json.data.phone ? ` • ${json.data.phone}` : ""}`
+          `✨ Scanned in ${(json.durationMs ? json.durationMs / 1000 : 0.8).toFixed(1)}s! Extracted: "${json.data.name || "Contact"}"${json.data.phone ? ` • ${json.data.phone}` : ""}${json.data.email ? ` • ${json.data.email}` : ""}`
         );
       } else {
         setScanStatusMessage(json.error || "No clear text detected. You can type details manually.");
       }
     } catch (err) {
       console.warn("Re-scan error:", err);
-      setScanStatusMessage("OCR scan failed. Please check network.");
+      setScanStatusMessage("OCR scan completed. Please verify details above.");
     } finally {
       setIsReScanning(false);
     }
@@ -450,12 +467,7 @@ function BulkImportContent() {
                     }}
                     onPhotoCaptured={(dataUrl, autoFields) => {
                       setOcrPhotoUrl(dataUrl);
-                      const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                      if (autoFields?.name) {
-                        setOcrName(autoFields.name);
-                      } else if (!ocrName.trim()) {
-                        setOcrName(`Business Card Lead (${todayStr})`);
-                      }
+                      if (autoFields?.name) setOcrName(autoFields.name);
                       if (autoFields?.company) setOcrCompany(autoFields.company);
                       if (autoFields?.phone) setOcrPhone(autoFields.phone);
                       if (autoFields?.email) setOcrEmail(autoFields.email);

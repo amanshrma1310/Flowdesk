@@ -195,7 +195,7 @@ export function LeadPhotoCapture({
           setIsAnalyzing(false);
           setAutoExtractSuccess(true);
           setExtractStatus(
-            `✨ Extracted: ${extracted.name || "Contact"}${extracted.phone ? ` • ${extracted.phone}` : ""}`
+            `✨ Extracted: ${extracted.name || "Contact"}${extracted.phone ? ` • ${extracted.phone}` : ""}${extracted.email ? ` • ${extracted.email}` : ""}`
           );
 
           onPhotoCaptured(dataUrl, extracted);
@@ -243,7 +243,7 @@ export function LeadPhotoCapture({
             setIsAnalyzing(false);
             setAutoExtractSuccess(true);
             setExtractStatus(
-              `✨ Extracted: ${extracted.name || "Contact"}${extracted.phone ? ` • ${extracted.phone}` : ""}`
+              `✨ Extracted: ${extracted.name || "Contact"}${extracted.phone ? ` • ${extracted.phone}` : ""}${extracted.email ? ` • ${extracted.email}` : ""}`
             );
 
             onPhotoCaptured(dataUrl, extracted);

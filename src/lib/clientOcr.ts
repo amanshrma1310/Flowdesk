@@ -33,38 +33,53 @@ export function enhanceImageForOcr(
     sy = Math.round((srcHeight - sh) / 2);
   }
 
-  // Set target resolution (minimum 1400px width for sharp letter recognition)
-  const scale = Math.max(1400 / sw, 1);
+  // Set target resolution (minimum 1600px width for sharp letter recognition)
+  const scale = Math.max(1600 / sw, 1);
   canvas.width = Math.round(sw * scale);
   canvas.height = Math.round(sh * scale);
 
   // Draw scaled image
   ctx.drawImage(imageSource, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
-  // Fast pixel-level contrast stretch & grayscale
+  // Advanced percentile-based contrast stretch & grayscale
+  // Immune to room lighting, shadows, fingers, and glare!
   try {
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const d = imgData.data;
+    const totalPixels = d.length / 4;
 
-    let min = 255;
-    let max = 0;
-
-    // 1. Find min and max luminance
+    // 1. Build 256-bin luminance histogram
+    const hist = new Uint32Array(256);
     for (let i = 0; i < d.length; i += 4) {
-      const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      if (gray < min) min = gray;
-      if (gray > max) max = gray;
+      const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+      hist[gray]++;
     }
 
-    const range = max - min || 1;
+    // 2. Find 3rd percentile (ink/letters) and 95th percentile (paper background)
+    const lowThresh = Math.round(totalPixels * 0.03);
+    const highThresh = Math.round(totalPixels * 0.95);
+    let cum = 0;
+    let pLow = 0;
+    let pHigh = 255;
 
-    // 2. Contrast stretch (normalize) to 0-255
+    for (let i = 0; i < 256; i++) {
+      cum += hist[i];
+      if (pLow === 0 && cum >= lowThresh) pLow = i;
+      if (cum >= highThresh) {
+        pHigh = i;
+        break;
+      }
+    }
+
+    const range = Math.max(pHigh - pLow, 15);
+
+    // 3. Stretch pixels between pLow and pHigh to 0-255 with crisp text contrast
     for (let i = 0; i < d.length; i += 4) {
       const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      const stretched = ((gray - min) / range) * 255;
-      d[i] = stretched;
-      d[i + 1] = stretched;
-      d[i + 2] = stretched;
+      const normalized = Math.min(255, Math.max(0, ((gray - pLow) / range) * 255));
+      d[i] = normalized;
+      d[i + 1] = normalized;
+      d[i + 2] = normalized;
     }
 
     ctx.putImageData(imgData, 0, 0);

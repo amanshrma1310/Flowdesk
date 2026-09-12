@@ -40,11 +40,13 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
   const rawLines = cleanRaw
     .split("\n")
     .map((l) => l.trim())
-    .map((l) => l.replace(/^[^a-zA-Z0-9+@#]+|[^a-zA-Z0-9.)]+$/g, "").trim()) // clean stray OCR symbols like | or -
+    .map((l) => l.replace(/^[^a-zA-Z0-9+@#]+|[^a-zA-Z0-9.)]+$/g, "").trim())
     .filter((l) => l.length > 0);
 
   let email = "";
   let website = "";
+  let mobilePhone = "";
+  let officePhone = "";
   let phone = "";
   let whatsApp = "";
   let name = "";
@@ -53,68 +55,173 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
   const addressParts: string[] = [];
   const candidateNames: string[] = [];
 
-  // 1. First Pass: Emails, URLs, Phone Numbers
+  // -------------------------------------------------------------
+  // 1. FIRST PASS: Extract Website & Domain
+  // -------------------------------------------------------------
   for (const line of rawLines) {
-    // Check Email (allows optional spaces introduced by OCR: "user @ domain . com")
-    if (!email) {
-      const emailMatch = line.match(/[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\s*\.\s*[a-zA-Z]{2,}/);
-      if (emailMatch) {
-        email = emailMatch[0].replace(/\s+/g, "").toLowerCase();
-      }
-    }
-
-    // Check Website
     if (!website) {
       const webMatch = line.match(/(?:https?:\/\/|www\.)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?/i);
       if (webMatch) {
-        website = webMatch[0].replace(/\s+/g, "");
+        website = webMatch[0].replace(/^[^\w]+/, "").toLowerCase();
+      }
+    }
+  }
+
+  // Extract root domain (e.g. "drreddysnestle.com")
+  const knownDomain = website
+    ? website.replace(/^(?:https?:\/\/)?(?:www\.)?/, "").split("/")[0].toLowerCase()
+    : "";
+
+  // -------------------------------------------------------------
+  // 2. SECOND PASS: Resilient Email Extraction
+  // Solves OCR misreading '@' as '©', '®', '(c)', '(a)', spaces,
+  // or '.com' as ',com' / '.corn' / ' com'.
+  // -------------------------------------------------------------
+  for (const line of rawLines) {
+    if (email) break;
+
+    // Skip pure website lines without email indicators
+    if (/^(?:https?:\/\/|www\.)/i.test(line) && !line.includes("@") && !line.includes("©")) {
+      continue;
+    }
+
+    // A. Standard well-formed email
+    const standardMatch = line.match(/[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\s*\.\s*[a-zA-Z]{2,}/i);
+    if (standardMatch) {
+      const candidate = standardMatch[0].replace(/\s+/g, "").toLowerCase();
+      if (!candidate.startsWith("www.") && !candidate.includes("@www.")) {
+        email = cleanEmail(candidate);
+        break;
       }
     }
 
-    // Check Mobile / WhatsApp (Prefers lines with M:, Mob:, Cell: or standard 10+ digits)
-    const mobilePrefixMatch = line.match(/(?:(?:M|Mob|Mobile|Cell|WhatsApp|WA|Call)[\s.:/–-]+)([+\d\s().-]{10,20})/i);
-    if (mobilePrefixMatch && !whatsApp) {
+    // B. OCR corrupted '@' character repair: ©, ®, (c), (a), [at], or spaces
+    const normalized = line
+      .replace(/[©®]/g, "@")
+      .replace(/\s*\((?:c|a)\)\s*/gi, "@")
+      .replace(/\s*\[at\]\s*/gi, "@")
+      .replace(/\s*@\s*/g, "@")
+      .replace(/\s*\.\s*/g, ".")
+      .replace(/[,.\s]\s*(com|in|org|net|co|io|biz|info)\b/gi, (_, tld) => "." + tld)
+      .replace(/\.(corn|c0m)\b/gi, ".com");
+
+    const repairedMatch = normalized.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i);
+    if (repairedMatch) {
+      const candidate = repairedMatch[0].replace(/\s+/g, "").toLowerCase();
+      if (!candidate.startsWith("www.") && !candidate.includes("@www.")) {
+        email = cleanEmail(candidate);
+        break;
+      }
+    }
+
+    // C. Explicit Email/Mail prefix (e.g. "E: shubham.sharma drreddysnestle.com" or "Email: ...")
+    const prefixMatch = line.match(/(?:(?:E|Email|Mail|E-mail|e-mail|EMail)[\s.:/–-]+)([^\s]+(?:\s+[^\s]+)?)/i);
+    if (prefixMatch) {
+      let candidate = prefixMatch[1].trim();
+      candidate = candidate
+        .replace(/[©®]/g, "@")
+        .replace(/\s*\((?:c|a)\)\s*/gi, "@")
+        .replace(/[,.\s]\s*(com|in|org|net|co|io|biz|info)\b/gi, (_, tld) => "." + tld);
+
+      if (candidate.includes("@")) {
+        email = cleanEmail(candidate.replace(/\s+/g, ""));
+        break;
+      } else if (candidate.includes(".com") || candidate.includes(".in") || (knownDomain && candidate.includes(knownDomain))) {
+        const parts = candidate.split(/[\s.]+/);
+        if (parts.length >= 2) {
+          const userPart = parts[0] + (parts.length > 2 ? "." + parts[1] : "");
+          email = cleanEmail(`${userPart}@${knownDomain || parts.slice(-2).join(".")}`);
+          break;
+        }
+      }
+    }
+
+    // D. Domain-matched email without '@' (e.g. "shubham.sharma drreddysnestle.com")
+    if (knownDomain && line.toLowerCase().includes(knownDomain)) {
+      const lineLower = line.toLowerCase();
+      if (!lineLower.startsWith("www.") && !lineLower.startsWith("http")) {
+        const userMatch = line.match(/([a-zA-Z0-9._-]+)[\s@©®:;/_.-]+([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+        if (userMatch) {
+          const u = userMatch[1].replace(/^[^a-zA-Z0-9]+|\.+$/g, "").replace(/\s+/g, ".").toLowerCase();
+          const d = userMatch[2].toLowerCase();
+          if (u.length >= 3 && !u.startsWith("www") && !d.startsWith("www.")) {
+            email = cleanEmail(`${u}@${d}`);
+            break;
+          }
+        }
+      }
+    }
+
+    // E. General pattern: word.word domain.tld (e.g. "shubham.sharma domain.com")
+    const generalEmailMatch = line.match(/([a-zA-Z0-9._-]+)[\s@©®:;/-]+([a-zA-Z0-9-]+\.(?:com|in|org|net|co|io|biz|info))\b/i);
+    if (generalEmailMatch) {
+      const u = generalEmailMatch[1].replace(/^[^a-zA-Z0-9]+|\.+$/g, "").replace(/\s+/g, ".").toLowerCase();
+      const d = generalEmailMatch[2].toLowerCase();
+      if (u.length >= 3 && !u.startsWith("www") && !d.startsWith("www.")) {
+        email = cleanEmail(`${u}@${d}`);
+        break;
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 3. THIRD PASS: Phone Numbers with Mobile Priority
+  // Mobile numbers (M:, Mob:, WhatsApp) take precedence over landlines (T:)
+  // -------------------------------------------------------------
+  for (const line of rawLines) {
+    // Check for Mobile / WhatsApp specifically
+    const mobilePrefixMatch = line.match(/(?:(?:M|Mob|Mobile|Cell|WhatsApp|WA|Call)[\s.:/–-]+)([+\d\s().-]{10,22})/i);
+    if (mobilePrefixMatch && !mobilePhone) {
       const cleaned = cleanPhoneNumber(mobilePrefixMatch[1]);
       if (cleaned.length >= 10) {
-        whatsApp = cleaned;
-        if (!phone) phone = cleaned;
+        mobilePhone = cleaned;
       }
     }
 
-    // Check Generic Phone / Tel
-    const telPrefixMatch = line.match(/(?:(?:T|Tel|Phone|Ph|Office|Contact)[\s.:/–-]+)([+\d\s().-]{10,20})/i);
-    if (telPrefixMatch && !phone) {
+    // Check for Generic Tel / Landline / Office
+    const telPrefixMatch = line.match(/(?:(?:T|Tel|Phone|Ph|Office|Contact|Landline)[\s.:/–-]+)([+\d\s().-]{10,22})/i);
+    if (telPrefixMatch && !officePhone) {
       const cleaned = cleanPhoneNumber(telPrefixMatch[1]);
       if (cleaned.length >= 10) {
-        phone = cleaned;
+        officePhone = cleaned;
       }
     }
 
-    // Check for raw standalone phone patterns if not found yet
-    if (!phone && !whatsApp) {
-      // Indian 10-digit mobile starting with 6,7,8,9, with optional +91 or 0
-      const standaloneIndian = line.match(/(?:\+91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}|(?:\+91[\s.-]?)?[6-9]\d{9}/);
-      if (standaloneIndian) {
-        const cleaned = cleanPhoneNumber(standaloneIndian[0]);
+    // Check for Indian 10-digit mobile starting with 6,7,8,9
+    if (!mobilePhone) {
+      const indianMobile = line.match(/(?:\+?91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}|(?:\+?91[\s.-]?)?[6-9]\d{9}/);
+      if (indianMobile) {
+        const cleaned = cleanPhoneNumber(indianMobile[0]);
         if (cleaned.length >= 10) {
-          phone = cleaned;
-          whatsApp = cleaned;
+          mobilePhone = cleaned;
         }
-      } else {
-        // International or landline
-        const intlMatch = line.match(/(?:\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}/);
-        if (intlMatch) {
-          const cleaned = cleanPhoneNumber(intlMatch[0]);
-          if (cleaned.length >= 10) {
-            phone = cleaned;
-            whatsApp = cleaned;
-          }
+      }
+    }
+
+    // International or landline if neither found
+    if (!mobilePhone && !officePhone) {
+      const intlMatch = line.match(/(?:\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}/);
+      if (intlMatch) {
+        const cleaned = cleanPhoneNumber(intlMatch[0]);
+        if (cleaned.length >= 10) {
+          officePhone = cleaned;
         }
       }
     }
   }
 
-  // 2. Second Pass: Title & Company detection
+  // Assign primary phone: Mobile ALWAYS takes priority for WhatsApp & primary call!
+  if (mobilePhone) {
+    phone = mobilePhone;
+    whatsApp = mobilePhone;
+  } else if (officePhone) {
+    phone = officePhone;
+    whatsApp = officePhone;
+  }
+
+  // -------------------------------------------------------------
+  // 4. FOURTH PASS: Job Title, Company Name, and Person Name
+  // -------------------------------------------------------------
   for (let i = 0; i < rawLines.length; i++) {
     const line = rawLines[i];
 
@@ -129,14 +236,19 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
       }
     }
 
-    // Check for Company Name
+    // Check for Company Name (NEVER accept website URLs as company name!)
     if (!company && COMPANY_INDICATORS.test(line)) {
-      company = cleanCompanyName(line);
+      if (!isUrlOrDomain(line)) {
+        company = cleanCompanyName(line);
+      }
     }
 
-    // Collect address lines (contains pin/zip, road, city, or commas with numbers)
-    if (line.match(/\b\d{6}\b/) || line.match(/(?:road|street|nagar|floor|block|city|india|telangana|delhi|mumbai|bangalore|hyderabad|pune|chennai)/i)) {
-      if (!line.includes("@") && !COMPANY_INDICATORS.test(line)) {
+    // Collect address lines (contains pin/zip, road, city, or known states)
+    if (
+      line.match(/\b\d{6}\b/) ||
+      line.match(/(?:road|street|nagar|floor|block|city|india|telangana|delhi|mumbai|bangalore|hyderabad|pune|chennai)/i)
+    ) {
+      if (!line.includes("@") && !COMPANY_INDICATORS.test(line) && !isUrlOrDomain(line)) {
         addressParts.push(line);
       }
     }
@@ -147,47 +259,45 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
     }
   }
 
-  // 3. Fallback for Name if not deduced by Job Title
+  // -------------------------------------------------------------
+  // 5. FALLBACKS FOR NAME & COMPANY
+  // -------------------------------------------------------------
+  // Fallback for Name if not deduced by Job Title
   if (!name && candidateNames.length > 0) {
-    // Pick the first candidate name that isn't the company name and not in address
     const found = candidateNames.find(
       (c) => c.toLowerCase() !== company.toLowerCase() && !addressParts.some((a) => a.includes(c))
     );
     if (found) {
-      name = found;
+      name = cleanPersonName(found);
     }
   }
 
-  // 4. Fallback for Company from Email Domain if not found
-  if (!company && email) {
-    const domain = email.split("@")[1];
-    if (domain && !domain.includes("gmail") && !domain.includes("yahoo") && !domain.includes("outlook") && !domain.includes("hotmail")) {
-      const domainName = domain.split(".")[0];
-      if (domainName && domainName.length > 2) {
-        company = domainName.charAt(0).toUpperCase() + domainName.slice(1);
+  // Fallback for Company from Corporate Header Lines (excluding URLs and person names)
+  if (!company) {
+    for (const line of rawLines) {
+      if (!isUrlOrDomain(line) && !isValidPersonName(line) && !line.includes("@") && !line.match(/^\+?\d/) && line.length > 4) {
+        if (!addressParts.includes(line) && line !== title) {
+          company = cleanCompanyName(line);
+          break;
+        }
       }
     }
   }
 
-  // 5. Fallback for Company from top header lines
-  if (!company && rawLines.length > 0) {
-    const firstLine = rawLines[0];
-    if (!isValidPersonName(firstLine) && firstLine.length > 3 && !firstLine.includes("@") && !firstLine.match(/^\+?\d/)) {
-      company = cleanCompanyName(firstLine);
+  // Fallback for Company from Website Domain
+  if (!company && knownDomain) {
+    const brand = knownDomain.split(".")[0];
+    if (brand && brand.length > 2) {
+      company = brand.charAt(0).toUpperCase() + brand.slice(1);
     }
-  }
-
-  // If still no WhatsApp but phone exists
-  if (!whatsApp && phone) {
-    whatsApp = phone;
-  }
-  if (!phone && whatsApp) {
-    phone = whatsApp;
   }
 
   // Assemble notes from remaining useful details
   const notesLines: string[] = [];
   if (title) notesLines.push(`Designation: ${title}`);
+  if (officePhone && mobilePhone && officePhone !== mobilePhone) {
+    notesLines.push(`Office Tel: ${officePhone}`);
+  }
   if (website) notesLines.push(`Website: ${website}`);
   if (addressParts.length > 0) notesLines.push(`Address: ${addressParts.join(", ")}`);
 
@@ -205,26 +315,47 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
   };
 }
 
+function isUrlOrDomain(str: string): boolean {
+  return /^(?:https?:\/\/|www\.)/i.test(str) || /\.(com|in|org|net|co|io|biz|info)\b/i.test(str);
+}
+
 function cleanPersonName(str: string): string {
   return str
-    .replace(/^[^a-zA-Z]+|[^a-zA-Z.]+$/g, "") // strip leading/trailing OCR artifacts
+    .replace(/^[^a-zA-Z]+|[^a-zA-Z.]+$/g, "")
+    // Strip trailing single letter field abbreviations like "Shubham Sharma T" -> "Shubham Sharma"
+    .replace(/\s+[TMEOFWPD]$/i, "")
+    .replace(/^(?:Name|Mr|Ms|Mrs|Dr)[\s.:/-]+/i, "")
     .trim();
 }
 
 function cleanCompanyName(str: string): string {
   return str
+    .replace(/^(?:ac|ad|the|at|in|on)\s+/i, "")
     .replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9.)]+$/g, "")
     .trim();
 }
 
+function cleanEmail(str: string): string {
+  let cleaned = str.replace(/\s+/g, "").toLowerCase();
+  if (cleaned.endsWith(".corn")) cleaned = cleaned.replace(/\.corn$/, ".com");
+  if (cleaned.endsWith(".c0m")) cleaned = cleaned.replace(/\.c0m$/, ".com");
+  return cleaned;
+}
+
 function cleanPhoneNumber(str: string): string {
-  const digits = str.replace(/[^\d+]/g, "");
+  let s = str.trim();
+  // Fix OCR misreading leading '+' as '4' (e.g. "491404904 8400" -> "+91 40 4904 8400")
+  if (/^491\d{9,10}/.test(s.replace(/\s+/g, ""))) {
+    s = "+" + s.replace(/^4/, "");
+  }
+
+  const digits = s.replace(/[^\d+]/g, "");
   // Retain already formatted international
   if (digits.startsWith("+")) {
     if (digits.startsWith("+91") && digits.length === 13) {
       return `+91 ${digits.slice(3, 8)} ${digits.slice(8)}`;
     }
-    return digits;
+    return s;
   }
   // 10 digits Indian mobile (starts with 6,7,8,9)
   if (digits.length === 10 && /^[6-9]/.test(digits)) {
@@ -238,17 +369,13 @@ function cleanPhoneNumber(str: string): string {
   if (digits.length === 12 && digits.startsWith("91")) {
     return `+91 ${digits.slice(2, 7)} ${digits.slice(7)}`;
   }
-  // Standard 10 digit generic
-  if (digits.length === 10) {
-    return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
-  }
-  return str.trim();
+  return s;
 }
 
 function isValidPersonName(str: string): boolean {
   const cleaned = cleanPersonName(str);
   if (cleaned.length < 3 || cleaned.length > 40) return false;
-  if (cleaned.includes("@") || cleaned.includes("http") || cleaned.includes("www")) return false;
+  if (cleaned.includes("@") || isUrlOrDomain(cleaned)) return false;
   if (/\d/.test(cleaned)) return false;
   if (NON_NAME_WORDS.test(cleaned)) return false;
   if (COMPANY_INDICATORS.test(cleaned)) return false;
