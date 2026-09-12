@@ -962,7 +962,15 @@ export default function LeadsPage() {
                       if (autoFields.notes && !notes) setNotes(autoFields.notes);
                     }
                   }}
-                  onRemovePhoto={() => setPhotoUrl("")}
+                  onRemovePhoto={() => {
+                    setPhotoUrl("");
+                    setLeadName("");
+                    setPhone("");
+                    setWhatsApp("");
+                    setEmail("");
+                    setCompany("");
+                    setNotes("");
+                  }}
                 />
               </div>
             )}

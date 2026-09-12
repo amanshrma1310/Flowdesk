@@ -79,9 +79,10 @@ function BulkImportContent() {
   // Direct 1-Click Lead Creation from Snapped Photo
   const [isCreatingDirectLead, setIsCreatingDirectLead] = useState(false);
   const [isReScanning, setIsReScanning] = useState(false);
-  const [autoCreateOnScan, setAutoCreateOnScan] = useState(true);
+  const [autoCreateOnScan, setAutoCreateOnScan] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState<string>("");
   const [createdLeadResult, setCreatedLeadResult] = useState<{ id: string; name: string } | null>(null);
+  const isSubmittingRef = React.useRef(false);
 
   const reScanCurrentPhoto = async () => {
     if (!ocrPhotoUrl) return;
@@ -216,6 +217,12 @@ function BulkImportContent() {
     const finalCompany = (overrideFields?.company || ocrCompany).trim();
     const finalNotes = (overrideFields?.notes || ocrNotes).trim();
 
+    // Prevent duplicate lead creation or double-click triggers
+    if (isSubmittingRef.current || createdLeadResult) {
+      console.warn("Lead already being created or already created for this scan.");
+      return;
+    }
+
     // STRICT VALIDATION: Refuse to proceed with empty contact data!
     if (!finalName && !finalPhone && !finalEmail) {
       console.warn("Refusing to create lead with empty contact information.");
@@ -224,6 +231,7 @@ function BulkImportContent() {
 
     const leadNameToSave = finalName || (finalPhone ? `Contact (${finalPhone})` : finalEmail);
 
+    isSubmittingRef.current = true;
     setIsCreatingDirectLead(true);
 
     try {
@@ -467,6 +475,8 @@ function BulkImportContent() {
                     }}
                     onPhotoCaptured={(dataUrl, autoFields) => {
                       setOcrPhotoUrl(dataUrl);
+                      setCreatedLeadResult(null);
+                      isSubmittingRef.current = false;
                       if (autoFields?.name) setOcrName(autoFields.name);
                       if (autoFields?.company) setOcrCompany(autoFields.company);
                       if (autoFields?.phone) setOcrPhone(autoFields.phone);
@@ -476,6 +486,14 @@ function BulkImportContent() {
                     onRemovePhoto={() => {
                       setOcrPhotoUrl("");
                       setScanStatusMessage("");
+                      setOcrName("");
+                      setOcrCompany("");
+                      setOcrPhone("");
+                      setOcrEmail("");
+                      setOcrNotes("");
+                      setOcrText("");
+                      setCreatedLeadResult(null);
+                      isSubmittingRef.current = false;
                     }}
                   />
 
@@ -606,7 +624,30 @@ function BulkImportContent() {
 
                     {/* ACTION BUTTONS: Instant Creation vs Bulk Batch */}
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
-                      {Boolean(ocrName.trim() || ocrPhone.trim() || ocrEmail.trim()) ? (
+                      {createdLeadResult ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link href={`/contacts/${createdLeadResult.id}`}>
+                            <Button
+                              size="sm"
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-2 py-2 px-4 shadow-md cursor-pointer"
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                              <span>Lead Created! View Profile →</span>
+                            </Button>
+                          </Link>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setCreatedLeadResult(null);
+                              isSubmittingRef.current = false;
+                            }}
+                            className="text-xs text-slate-500 hover:text-slate-800"
+                          >
+                            <span>+ Create Another</span>
+                          </Button>
+                        </div>
+                      ) : Boolean(ocrName.trim() || ocrPhone.trim() || ocrEmail.trim()) ? (
                         <Button
                           size="sm"
                           disabled={isCreatingDirectLead}

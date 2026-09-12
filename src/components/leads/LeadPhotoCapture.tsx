@@ -281,7 +281,11 @@ export function LeadPhotoCapture({
     stopCamera();
     setPhotoPreview("");
     setLastExtracted(null);
+    setAutoExtractSuccess(false);
+    setExtractStatus("");
     setMode("IDLE");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (nativeCameraInputRef.current) nativeCameraInputRef.current.value = "";
     if (onRemovePhoto) onRemovePhoto();
   };
 
