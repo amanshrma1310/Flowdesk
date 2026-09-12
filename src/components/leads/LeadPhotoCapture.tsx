@@ -6,21 +6,23 @@ import {
   Upload,
   RefreshCw,
   X,
-  Check,
   Sparkles,
   SwitchCamera,
   Image as ImageIcon,
   AlertCircle,
-  Eye,
+  ScanLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-interface ExtractedLeadData {
+export interface ExtractedLeadData {
   name?: string;
   phone?: string;
   email?: string;
   company?: string;
   notes?: string;
+  title?: string;
+  rawText?: string;
+  confidence?: number;
 }
 
 interface LeadPhotoCaptureProps {
@@ -28,6 +30,8 @@ interface LeadPhotoCaptureProps {
   onPhotoCaptured: (dataUrl: string, autoFields?: ExtractedLeadData) => void;
   onRemovePhoto?: () => void;
   className?: string;
+  autoCreateOnScan?: boolean;
+  onAutoCreate?: (dataUrl: string, autoFields: ExtractedLeadData) => void;
 }
 
 export function LeadPhotoCapture({
@@ -35,13 +39,17 @@ export function LeadPhotoCapture({
   onPhotoCaptured,
   onRemovePhoto,
   className = "",
+  autoCreateOnScan = false,
+  onAutoCreate,
 }: LeadPhotoCaptureProps) {
   const [mode, setMode] = useState<"IDLE" | "CAMERA" | "PREVIEW">("IDLE");
   const [photoPreview, setPhotoPreview] = useState<string>(currentPhotoUrl || "");
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [extractStatus, setExtractStatus] = useState<string>("");
   const [autoExtractSuccess, setAutoExtractSuccess] = useState(false);
+  const [lastExtracted, setLastExtracted] = useState<ExtractedLeadData | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -80,11 +88,12 @@ export function LeadPhotoCapture({
         throw new Error("Webcam API not supported in this browser. Please use the mobile camera upload button.");
       }
 
+      // Request high resolution for sharp OCR text recognition
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: targetFacing,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
         },
         audio: false,
       });
@@ -115,14 +124,17 @@ export function LeadPhotoCapture({
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    
+    // Capture at full native resolution of camera stream
+    canvas.width = video.videoWidth || 1920;
+    canvas.height = video.videoHeight || 1080;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    // High quality JPEG output for OCR text clarity
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
 
     stopCamera();
     setPhotoPreview(dataUrl);
@@ -150,6 +162,7 @@ export function LeadPhotoCapture({
   const analyzePhotoAndNotify = async (dataUrl: string) => {
     setIsAnalyzing(true);
     setAutoExtractSuccess(false);
+    setExtractStatus("Scanning card with AI OCR engine...");
 
     try {
       console.log("[LeadPhotoCapture] Sending image to /api/v1/ocr/scan...");
@@ -162,22 +175,67 @@ export function LeadPhotoCapture({
       const json = await res.json();
       if (json.success && json.data) {
         console.log("[LeadPhotoCapture] OCR Succeeded:", json.data);
+        
+        let extractedName = json.data.name || "";
+        let extractedCompany = json.data.company || "";
+        let extractedPhone = json.data.phone || json.data.whatsApp || "";
+        let extractedEmail = json.data.email || "";
+        const extractedNotes = json.data.notes || json.data.title || "";
+
+        // Smart fallback from raw text if specific fields missed
+        if (json.rawText) {
+          const rawTextLines = (json.rawText as string).split("\n").map((l: string) => l.trim()).filter(Boolean);
+          if (!extractedName && rawTextLines.length > 0) {
+            extractedName = rawTextLines[0].slice(0, 40);
+          }
+          if (!extractedPhone) {
+            const anyDigits = json.rawText.match(/(?:\+91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}|\b[6-9]\d{9}\b/);
+            if (anyDigits) {
+              const digits = anyDigits[0].replace(/[^\d+]/g, "");
+              extractedPhone = digits.length === 10 ? `+91 ${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
+            }
+          }
+          if (!extractedEmail) {
+            const anyEmail = json.rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+            if (anyEmail) {
+              extractedEmail = anyEmail[0].toLowerCase();
+            }
+          }
+        }
+
+        const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        if (!extractedName) {
+          extractedName = `Card Lead (${todayStr})`;
+        }
+
         const extracted: ExtractedLeadData = {
-          name: json.data.name || "",
-          company: json.data.company || "",
-          phone: json.data.phone || json.data.whatsApp || "",
-          email: json.data.email || "",
-          notes: json.data.notes || json.data.title || "",
+          name: extractedName,
+          company: extractedCompany,
+          phone: extractedPhone,
+          email: extractedEmail,
+          notes: extractedNotes || `Scanned from business card (Confidence: ${json.confidence || 75}%)`,
+          title: json.data.title,
+          rawText: json.rawText,
+          confidence: json.confidence,
         };
 
+        setLastExtracted(extracted);
         setIsAnalyzing(false);
         setAutoExtractSuccess(true);
+        setExtractStatus(`Found: ${extracted.name}${extracted.phone ? ` • ${extracted.phone}` : ""}`);
+
         onPhotoCaptured(dataUrl, extracted);
-        setTimeout(() => setAutoExtractSuccess(false), 5000);
+
+        // Auto-create lead immediately if configured
+        if (autoCreateOnScan && onAutoCreate && (extracted.name || extracted.phone || extracted.email)) {
+          onAutoCreate(dataUrl, extracted);
+        }
+
+        setTimeout(() => setAutoExtractSuccess(false), 6000);
         return;
       }
     } catch (err) {
-      console.warn("[LeadPhotoCapture] Server OCR API error, using smart fallback:", err);
+      console.warn("[LeadPhotoCapture] Server OCR API error:", err);
     }
 
     // Fallback if network or OCR fails
@@ -191,14 +249,14 @@ export function LeadPhotoCapture({
     };
 
     setIsAnalyzing(false);
-    setAutoExtractSuccess(true);
+    setExtractStatus("Photo attached. You can type contact details or click Re-Scan.");
     onPhotoCaptured(dataUrl, fallbackData);
-    setTimeout(() => setAutoExtractSuccess(false), 4000);
   };
 
   const handleClear = () => {
     stopCamera();
     setPhotoPreview("");
+    setLastExtracted(null);
     setMode("IDLE");
     if (onRemovePhoto) onRemovePhoto();
   };
@@ -226,29 +284,29 @@ export function LeadPhotoCapture({
 
       {/* STATE 1: IDLE / NO PHOTO */}
       {mode === "IDLE" && !photoPreview && (
-        <div className="p-3.5 bg-slate-50 border-2 border-dashed border-slate-300 dark:bg-slate-900 dark:border-slate-700 rounded-2xl text-center space-y-3">
-          <div className="flex items-center justify-center gap-2">
-            <div className="h-10 w-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center dark:bg-indigo-950 dark:text-indigo-400">
+        <div className="p-4 bg-slate-50 border-2 border-dashed border-slate-300 dark:bg-slate-900 dark:border-slate-700 rounded-2xl text-center space-y-3">
+          <div className="flex items-center justify-center gap-3">
+            <div className="h-11 w-11 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center dark:bg-indigo-950 dark:text-indigo-400 shrink-0">
               <Camera className="h-5 w-5" />
             </div>
             <div className="text-left">
-              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                Snap or Upload Contact Photo
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                Snap or Upload Business Card / Contact Photo
               </h4>
-              <p className="text-[11px] text-slate-500">
-                Capture business card, client photo, or event badge
+              <p className="text-xs text-slate-500">
+                AI will scan the photo, read name, phone, email & create a lead
               </p>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1">
             <Button
               type="button"
               size="sm"
               onClick={() => startCamera("environment")}
-              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5 shadow-xs cursor-pointer"
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-2 py-2 px-4 shadow-sm cursor-pointer"
             >
-              <Camera className="h-3.5 w-3.5" />
+              <Camera className="h-4 w-4" />
               <span>Click Picture (Camera)</span>
             </Button>
 
@@ -271,7 +329,7 @@ export function LeadPhotoCapture({
               className="w-full sm:w-auto text-xs font-semibold gap-1.5 border-slate-200 dark:border-slate-700 cursor-pointer"
             >
               <Upload className="h-3.5 w-3.5 text-slate-500" />
-              <span>Upload Photo</span>
+              <span>Upload Card / Image</span>
             </Button>
           </div>
         </div>
@@ -289,11 +347,22 @@ export function LeadPhotoCapture({
               className="w-full h-full object-cover"
             />
 
-            {/* Viewfinder Target Guide */}
-            <div className="absolute inset-4 sm:inset-8 border-2 border-white/60 border-dashed rounded-xl pointer-events-none flex flex-col justify-between p-2">
-              <span className="text-[10px] font-bold text-white bg-black/50 px-2 py-0.5 rounded backdrop-blur-xs self-start">
-                Align card or contact
-              </span>
+            {/* Viewfinder Target Guide Overlay */}
+            <div className="absolute inset-4 sm:inset-10 border-2 border-white/80 border-dashed rounded-xl pointer-events-none flex flex-col justify-between p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-white bg-indigo-600/85 px-2.5 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1.5">
+                  <ScanLine className="h-3 w-3" />
+                  <span>Align card here</span>
+                </span>
+                <span className="text-[10px] text-white/90 bg-black/60 px-2 py-0.5 rounded backdrop-blur-xs">
+                  Hold steady for clear focus
+                </span>
+              </div>
+              <div className="text-center">
+                <span className="text-[10px] text-white/80 bg-black/50 px-2 py-0.5 rounded backdrop-blur-xs">
+                  AI will auto-extract Name, Phone & Company
+                </span>
+              </div>
             </div>
 
             {/* Camera Error Fallback */}
@@ -325,7 +394,7 @@ export function LeadPhotoCapture({
           </div>
 
           {/* Camera Controls Bar */}
-          <div className="flex items-center justify-between px-2 pt-1">
+          <div className="flex items-center justify-between px-3 py-1">
             <button
               type="button"
               onClick={stopCamera}
@@ -335,20 +404,24 @@ export function LeadPhotoCapture({
             </button>
 
             {/* Shutter Snap Button */}
-            <button
-              type="button"
-              onClick={snapPicture}
-              className="h-12 w-12 rounded-full bg-white border-4 border-indigo-600 hover:scale-105 active:scale-95 shadow-xl transition-all flex items-center justify-center cursor-pointer"
-              title="Snap Picture"
-            >
-              <div className="h-9 w-9 rounded-full bg-indigo-600" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={snapPicture}
+                className="h-14 w-14 rounded-full bg-white border-4 border-indigo-600 hover:scale-105 active:scale-95 shadow-xl transition-all flex items-center justify-center cursor-pointer"
+                title="Snap Picture & Scan Card"
+              >
+                <div className="h-10 w-10 rounded-full bg-indigo-600 flex items-center justify-center text-white">
+                  <Camera className="h-5 w-5" />
+                </div>
+              </button>
+            </div>
 
             {/* Flip Camera (Front/Back) */}
             <button
               type="button"
               onClick={flipCamera}
-              className="h-8 w-8 rounded-lg bg-slate-800 text-white hover:bg-slate-700 flex items-center justify-center cursor-pointer"
+              className="h-9 w-9 rounded-xl bg-slate-800 text-white hover:bg-slate-700 flex items-center justify-center cursor-pointer"
               title="Flip Camera"
             >
               <SwitchCamera className="h-4 w-4" />
@@ -359,7 +432,7 @@ export function LeadPhotoCapture({
 
       {/* STATE 3: PHOTO PREVIEW & RETAKE */}
       {(mode === "PREVIEW" || photoPreview) && (
-        <div className="relative p-3 bg-slate-50 border border-slate-200 dark:bg-slate-900 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row items-center gap-3">
+        <div className="relative p-3.5 bg-slate-50 border border-slate-200 dark:bg-slate-900 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row items-center gap-3.5">
           <div className="relative h-24 w-32 shrink-0 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-950 shadow-xs">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -367,12 +440,21 @@ export function LeadPhotoCapture({
               alt="Lead Card or Photo"
               className="w-full h-full object-cover"
             />
+            {/* Animated Laser Scanning Bar when analyzing */}
+            {isAnalyzing && (
+              <div className="absolute inset-0 bg-indigo-950/40 backdrop-blur-2xs flex flex-col justify-center items-center">
+                <div className="w-full h-0.5 bg-indigo-400 shadow-[0_0_8px_#818cf8] animate-pulse" />
+                <span className="text-[9px] font-bold text-white bg-indigo-600/90 px-1.5 py-0.5 rounded mt-1">
+                  AI OCR...
+                </span>
+              </div>
+            )}
             <div className="absolute top-1 right-1 bg-black/60 text-white p-1 rounded-md backdrop-blur-xs">
               <ImageIcon className="h-3 w-3" />
             </div>
           </div>
 
-          <div className="flex-1 min-w-0 space-y-1 text-center sm:text-left">
+          <div className="flex-1 min-w-0 space-y-1.5 text-center sm:text-left">
             <div className="flex items-center justify-center sm:justify-start gap-1.5">
               <span className="text-xs font-bold text-slate-900 dark:text-white">
                 Contact Photo Attached
@@ -381,47 +463,56 @@ export function LeadPhotoCapture({
             </div>
 
             {isAnalyzing ? (
-              <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center justify-center sm:justify-start gap-1.5">
+              <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold flex items-center justify-center sm:justify-start gap-1.5">
                 <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                <span>Scanning card with AI OCR... Extracting contact details...</span>
+                <span>Reading card text with AI OCR... (less than 1 sec)</span>
               </p>
             ) : autoExtractSuccess ? (
-              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center sm:justify-start gap-1">
-                <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-                <span>Card details extracted successfully via OCR! ✓</span>
-              </p>
+              <div className="space-y-0.5">
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center sm:justify-start gap-1">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Card details extracted successfully! ✓</span>
+                </p>
+                {lastExtracted && (
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium truncate">
+                    {lastExtracted.name}
+                    {lastExtracted.company ? ` • ${lastExtracted.company}` : ""}
+                    {lastExtracted.phone ? ` • ${lastExtracted.phone}` : ""}
+                  </p>
+                )}
+              </div>
             ) : (
-              <p className="text-[11px] text-slate-500 truncate">
-                Saved with lead profile • Visible in CRM & card view
+              <p className="text-xs text-slate-500 truncate">
+                {extractStatus || "Saved with lead profile • Visible in CRM & card view"}
               </p>
             )}
 
             {/* Quick Action Buttons */}
-            <div className="flex items-center justify-center sm:justify-start gap-2 pt-1.5">
+            <div className="flex items-center justify-center sm:justify-start gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={() => startCamera("environment")}
-                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 cursor-pointer"
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 cursor-pointer"
               >
-                <Camera className="h-3 w-3" />
+                <Camera className="h-3.5 w-3.5" />
                 <span>Retake</span>
               </button>
               <span className="text-slate-300">•</span>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="text-[11px] font-bold text-slate-600 hover:text-slate-800 dark:text-slate-300 flex items-center gap-1 cursor-pointer"
+                className="text-xs font-bold text-slate-600 hover:text-slate-800 dark:text-slate-300 flex items-center gap-1 cursor-pointer"
               >
-                <Upload className="h-3 w-3" />
-                <span>Change</span>
+                <Upload className="h-3.5 w-3.5" />
+                <span>Change Image</span>
               </button>
               <span className="text-slate-300">•</span>
               <button
                 type="button"
                 onClick={handleClear}
-                className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
+                className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
                 <span>Remove</span>
               </button>
             </div>

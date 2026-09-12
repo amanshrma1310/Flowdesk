@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useFlowDesk } from "@/lib/store";
 import { LeadPhotoCapture } from "@/components/leads/LeadPhotoCapture";
 
@@ -77,11 +78,14 @@ function BulkImportContent() {
   // Direct 1-Click Lead Creation from Snapped Photo
   const [isCreatingDirectLead, setIsCreatingDirectLead] = useState(false);
   const [isReScanning, setIsReScanning] = useState(false);
+  const [autoCreateOnScan, setAutoCreateOnScan] = useState(true);
+  const [scanStatusMessage, setScanStatusMessage] = useState<string>("");
   const [createdLeadResult, setCreatedLeadResult] = useState<{ id: string; name: string } | null>(null);
 
   const reScanCurrentPhoto = async () => {
     if (!ocrPhotoUrl) return;
     setIsReScanning(true);
+    setScanStatusMessage("Scanning card photo with high-speed AI OCR engine...");
     try {
       const res = await fetch("/api/v1/ocr/scan", {
         method: "POST",
@@ -95,9 +99,16 @@ function BulkImportContent() {
         if (json.data.phone || json.data.whatsApp) setOcrPhone(json.data.phone || json.data.whatsApp);
         if (json.data.email) setOcrEmail(json.data.email);
         if (json.data.notes) setOcrNotes(json.data.notes);
+
+        setScanStatusMessage(
+          `✨ Scanned in ${(json.durationMs ? json.durationMs / 1000 : 0.8).toFixed(1)}s! Extracted: "${json.data.name || "Contact"}"${json.data.phone ? ` • ${json.data.phone}` : ""}`
+        );
+      } else {
+        setScanStatusMessage(json.error || "No clear text detected. You can type details manually.");
       }
     } catch (err) {
       console.warn("Re-scan error:", err);
+      setScanStatusMessage("OCR scan failed. Please check network.");
     } finally {
       setIsReScanning(false);
     }
@@ -177,24 +188,29 @@ function BulkImportContent() {
   };
 
   // Instant 1-Click Lead Creation from Photo
-  const handleDirectCreateLead = async () => {
-    if (!ocrPhotoUrl && !ocrName.trim()) return;
+  const handleDirectCreateLead = async (
+    overrideFields?: { name?: string; company?: string; email?: string; phone?: string; notes?: string },
+    overridePhotoUrl?: string
+  ) => {
+    const photoToUse = overridePhotoUrl || ocrPhotoUrl;
+    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const finalName = (overrideFields?.name || ocrName).trim() || `Card Lead (${todayStr})`;
+
+    if (!photoToUse && !finalName) return;
 
     setIsCreatingDirectLead(true);
-    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const finalName = ocrName.trim() || `Card Lead (${todayStr})`;
 
     try {
       const newLead = addLead({
         name: finalName,
-        company: ocrCompany.trim(),
-        email: ocrEmail.trim(),
-        phone: ocrPhone.trim(),
-        whatsApp: ocrPhone.trim(),
+        company: (overrideFields?.company ?? ocrCompany).trim(),
+        email: (overrideFields?.email ?? ocrEmail).trim(),
+        phone: (overrideFields?.phone ?? ocrPhone).trim(),
+        whatsApp: (overrideFields?.phone ?? ocrPhone).trim(),
         source: "Camera / Card Scan",
-        photoUrl: ocrPhotoUrl || undefined,
+        photoUrl: photoToUse || undefined,
         photoType: "card",
-        notes: ocrNotes.trim() || "Created directly from camera photo snap",
+        notes: (overrideFields?.notes ?? ocrNotes).trim() || "Created directly from camera photo snap",
       });
 
       // Synchronize with server API
@@ -419,6 +435,10 @@ function BulkImportContent() {
                   {/* Embedded Camera Component */}
                   <LeadPhotoCapture
                     currentPhotoUrl={ocrPhotoUrl}
+                    autoCreateOnScan={autoCreateOnScan}
+                    onAutoCreate={(dataUrl, autoFields) => {
+                      handleDirectCreateLead(autoFields, dataUrl);
+                    }}
                     onPhotoCaptured={(dataUrl, autoFields) => {
                       setOcrPhotoUrl(dataUrl);
                       const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -434,11 +454,41 @@ function BulkImportContent() {
                     }}
                     onRemovePhoto={() => {
                       setOcrPhotoUrl("");
+                      setScanStatusMessage("");
                     }}
                   />
 
+                  {/* Auto-Create Toggle Switch */}
+                  <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-850 rounded-xl border border-indigo-100 dark:border-slate-800 shadow-2xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-7 w-7 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 flex items-center justify-center shrink-0">
+                        <Zap className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                          Instant Lead Creation on Card Scan
+                        </span>
+                        <p className="text-[11px] text-slate-500">
+                          Automatically create CRM lead as soon as card text and contact details are detected
+                        </p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={autoCreateOnScan}
+                      onCheckedChange={setAutoCreateOnScan}
+                    />
+                  </div>
+
+                  {/* Realtime Scan Status Banner */}
+                  {scanStatusMessage && (
+                    <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs text-indigo-800 dark:text-indigo-200 font-semibold flex items-center gap-2">
+                      <Sparkles className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
+                      <span>{scanStatusMessage}</span>
+                    </div>
+                  )}
+
                   {/* Contact Fields */}
-                  <div className="pt-2 space-y-3">
+                  <div className="pt-1 space-y-3">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                         <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
@@ -466,6 +516,33 @@ function BulkImportContent() {
                       </div>
                     </div>
 
+                    {/* Detected Attributes Badges */}
+                    {(ocrName || ocrPhone || ocrEmail || ocrCompany) && (
+                      <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">AI Extracted:</span>
+                        {ocrName && (
+                          <span className="text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-md">
+                            👤 {ocrName}
+                          </span>
+                        )}
+                        {ocrCompany && (
+                          <span className="text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md">
+                            🏢 {ocrCompany}
+                          </span>
+                        )}
+                        {ocrPhone && (
+                          <span className="text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-md">
+                            📱 {ocrPhone}
+                          </span>
+                        )}
+                        {ocrEmail && (
+                          <span className="text-[11px] font-medium bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded-md">
+                            ✉️ {ocrEmail}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                       <div>
                         <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Full Name / Title</label>
@@ -473,7 +550,7 @@ function BulkImportContent() {
                           placeholder="e.g. Amit Sharma (or auto-named from card)"
                           value={ocrName}
                           onChange={(e) => setOcrName(e.target.value)}
-                          className="bg-white dark:bg-slate-950"
+                          className="bg-white dark:bg-slate-950 font-medium"
                         />
                       </div>
                       <div>
@@ -482,7 +559,7 @@ function BulkImportContent() {
                           placeholder="e.g. Apex Solutions"
                           value={ocrCompany}
                           onChange={(e) => setOcrCompany(e.target.value)}
-                          className="bg-white dark:bg-slate-950"
+                          className="bg-white dark:bg-slate-950 font-medium"
                         />
                       </div>
                       <div>
@@ -491,7 +568,7 @@ function BulkImportContent() {
                           placeholder="e.g. +91 98765 00000"
                           value={ocrPhone}
                           onChange={(e) => setOcrPhone(e.target.value)}
-                          className="bg-white dark:bg-slate-950"
+                          className="bg-white dark:bg-slate-950 font-medium font-mono"
                         />
                       </div>
                       <div>
@@ -501,7 +578,7 @@ function BulkImportContent() {
                           placeholder="e.g. amit@apexsolutions.com"
                           value={ocrEmail}
                           onChange={(e) => setOcrEmail(e.target.value)}
-                          className="bg-white dark:bg-slate-950"
+                          className="bg-white dark:bg-slate-950 font-medium"
                         />
                       </div>
                     </div>
@@ -511,7 +588,7 @@ function BulkImportContent() {
                       <Button
                         size="sm"
                         disabled={!ocrPhotoUrl && !ocrName.trim()}
-                        onClick={handleDirectCreateLead}
+                        onClick={() => handleDirectCreateLead()}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-2 py-2 px-4 shadow-md cursor-pointer"
                       >
                         <Check className="h-4 w-4" />

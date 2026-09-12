@@ -42,3 +42,4 @@ next-env.d.ts
 
 # tesseract ocr data
 *.traineddata
+!public/tessdata/eng.traineddata
