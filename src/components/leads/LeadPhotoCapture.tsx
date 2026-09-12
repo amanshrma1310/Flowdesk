@@ -13,6 +13,7 @@ import {
   ScanLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { recognizeCardInBrowser } from "@/lib/clientOcr";
 
 export interface ExtractedLeadData {
   name?: string;
@@ -158,123 +159,122 @@ export function LeadPhotoCapture({
     reader.readAsDataURL(file);
   };
 
-  // Extract contact text from picture with AI OCR API
+  // Extract contact text from picture with AI OCR API (Client-side first, Server fallback)
   const analyzePhotoAndNotify = async (dataUrl: string) => {
     setIsAnalyzing(true);
     setAutoExtractSuccess(false);
-    setExtractStatus("Scanning card with AI OCR engine...");
+    setExtractStatus("Scanning card with high-speed AI OCR...");
 
+    let clientResult: any = null;
+
+    // 1. Try Browser Client-Side OCR first (fastest, 0 network latency, bypasses Hostinger 504 timeouts!)
     try {
-      console.log("[LeadPhotoCapture] Sending image to /api/v1/ocr/scan...");
+      console.log("[LeadPhotoCapture] Running client-side browser OCR...");
+      clientResult = await recognizeCardInBrowser(dataUrl, (msg) => {
+        setExtractStatus(msg);
+      });
+
+      if (clientResult && clientResult.success && clientResult.data) {
+        console.log("[LeadPhotoCapture] Client OCR succeeded:", clientResult.data);
+        const parsed = clientResult.data;
+        const hasContact = Boolean(parsed.name || parsed.phone || parsed.email);
+
+        if (hasContact) {
+          const extracted: ExtractedLeadData = {
+            name: parsed.name,
+            company: parsed.company,
+            phone: parsed.phone || parsed.whatsApp,
+            email: parsed.email,
+            notes: parsed.notes || `Scanned via AI OCR (Confidence: ${clientResult.confidence || 85}%)`,
+            title: parsed.title,
+            rawText: clientResult.rawText,
+            confidence: clientResult.confidence,
+          };
+
+          setLastExtracted(extracted);
+          setIsAnalyzing(false);
+          setAutoExtractSuccess(true);
+          setExtractStatus(
+            `✨ Extracted: ${extracted.name || "Contact"}${extracted.phone ? ` • ${extracted.phone}` : ""}`
+          );
+
+          onPhotoCaptured(dataUrl, extracted);
+
+          if (autoCreateOnScan && onAutoCreate && (extracted.name || extracted.phone || extracted.email)) {
+            onAutoCreate(dataUrl, extracted);
+          }
+
+          setTimeout(() => setAutoExtractSuccess(false), 8000);
+          return;
+        }
+      }
+    } catch (clientErr) {
+      console.warn("[LeadPhotoCapture] Client OCR warning, trying server fallback:", clientErr);
+    }
+
+    // 2. Fallback to Server OCR API if client-side did not find complete contact details
+    try {
+      console.log("[LeadPhotoCapture] Sending image to /api/v1/ocr/scan fallback...");
+      setExtractStatus("Checking server recognition fallback...");
       const res = await fetch("/api/v1/ocr/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: dataUrl }),
       });
 
-      const json = await res.json();
-      
-      let extractedName = json.data?.name || "";
-      let extractedCompany = json.data?.company || "";
-      let extractedPhone = json.data?.phone || json.data?.whatsApp || "";
-      let extractedEmail = json.data?.email || "";
-      const extractedNotes = json.data?.notes || json.data?.title || "";
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          const parsed = json.data;
+          const hasContact = Boolean(parsed.name || parsed.phone || parsed.email);
+          if (hasContact) {
+            const extracted: ExtractedLeadData = {
+              name: parsed.name,
+              company: parsed.company,
+              phone: parsed.phone || parsed.whatsApp,
+              email: parsed.email,
+              notes: parsed.notes || `Scanned from business card (Confidence: ${json.confidence || 75}%)`,
+              title: parsed.title,
+              rawText: json.rawText,
+              confidence: json.confidence,
+            };
 
-      // Smart fallback from raw text if specific fields missed
-      if (json.rawText) {
-        const rawTextLines = (json.rawText as string)
-          .split("\n")
-          .map((l: string) => l.trim())
-          .filter((l: string) => l.length > 2 && !l.toLowerCase().startsWith("card"));
+            setLastExtracted(extracted);
+            setIsAnalyzing(false);
+            setAutoExtractSuccess(true);
+            setExtractStatus(
+              `✨ Extracted: ${extracted.name || "Contact"}${extracted.phone ? ` • ${extracted.phone}` : ""}`
+            );
 
-        if (!extractedName && rawTextLines.length > 0) {
-          const cand = rawTextLines[0].slice(0, 40);
-          if (!cand.toLowerCase().includes("card") && !cand.toLowerCase().includes("snap")) {
-            extractedName = cand;
-          }
-        }
-        if (!extractedPhone) {
-          const anyDigits = json.rawText.match(/(?:\+91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}|\b[6-9]\d{9}\b/);
-          if (anyDigits) {
-            const digits = anyDigits[0].replace(/[^\d+]/g, "");
-            extractedPhone = digits.length === 10 ? `+91 ${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
-          }
-        }
-        if (!extractedEmail) {
-          const anyEmail = json.rawText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-          if (anyEmail) {
-            extractedEmail = anyEmail[0].toLowerCase();
+            onPhotoCaptured(dataUrl, extracted);
+
+            if (autoCreateOnScan && onAutoCreate && (extracted.name || extracted.phone || extracted.email)) {
+              onAutoCreate(dataUrl, extracted);
+            }
+
+            setTimeout(() => setAutoExtractSuccess(false), 8000);
+            return;
           }
         }
       }
-
-      // STRICT VALIDATION: Did we actually find real contact info?
-      const hasRealData = Boolean(
-        (extractedName &&
-          !extractedName.toLowerCase().startsWith("card lead") &&
-          !extractedName.toLowerCase().startsWith("card contact")) ||
-        extractedPhone ||
-        extractedEmail
-      );
-
-      if (hasRealData) {
-        const extracted: ExtractedLeadData = {
-          name: extractedName,
-          company: extractedCompany,
-          phone: extractedPhone,
-          email: extractedEmail,
-          notes: extractedNotes || `Scanned from business card (Confidence: ${json.confidence || 75}%)`,
-          title: json.data?.title,
-          rawText: json.rawText,
-          confidence: json.confidence,
-        };
-
-        setLastExtracted(extracted);
-        setIsAnalyzing(false);
-        setAutoExtractSuccess(true);
-        setExtractStatus(`✨ Extracted: ${extracted.name}${extracted.phone ? ` • ${extracted.phone}` : ""}`);
-
-        onPhotoCaptured(dataUrl, extracted);
-
-        // ONLY auto-create if REAL contact info is present!
-        if (autoCreateOnScan && onAutoCreate && (extracted.name || extracted.phone || extracted.email)) {
-          onAutoCreate(dataUrl, extracted);
-        }
-
-        setTimeout(() => setAutoExtractSuccess(false), 8000);
-        return;
-      }
-
-      // NO real contact data was found in the image!
-      setIsAnalyzing(false);
-      setAutoExtractSuccess(false);
-      setLastExtracted(null);
-      setExtractStatus(
-        "⚠️ No contact text detected. Card may be blurry or out of focus. Hold card steady 8-10 inches from camera, or enter details below."
-      );
-      // Pass empty fields so the form is NOT populated with fake dummy data!
-      onPhotoCaptured(dataUrl, {
-        name: "",
-        phone: "",
-        email: "",
-        company: "",
-        notes: json.rawText ? `Unparsed photo text:\n${json.rawText}` : "",
-      });
-      return;
     } catch (err) {
-      console.warn("[LeadPhotoCapture] Server OCR API error:", err);
-      setIsAnalyzing(false);
-      setAutoExtractSuccess(false);
-      setLastExtracted(null);
-      setExtractStatus("⚠️ Scan timed out or connection failed. Please enter details manually or re-scan.");
-      onPhotoCaptured(dataUrl, {
-        name: "",
-        phone: "",
-        email: "",
-        company: "",
-        notes: "",
-      });
+      console.warn("[LeadPhotoCapture] Server OCR fallback skipped/error:", err);
     }
+
+    // 3. If neither found contact information, report cleanly to user without fake dummy names!
+    setIsAnalyzing(false);
+    setAutoExtractSuccess(false);
+    setLastExtracted(null);
+    setExtractStatus(
+      "⚠️ No contact text detected. Card may be blurry or out of focus. Hold card steady 8-10 inches from camera, or enter details below."
+    );
+    onPhotoCaptured(dataUrl, {
+      name: "",
+      phone: "",
+      email: "",
+      company: "",
+      notes: clientResult?.rawText ? `Unparsed card text:\n${clientResult.rawText}` : "",
+    });
   };
 
   const handleClear = () => {
