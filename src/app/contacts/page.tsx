@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Users,
   Search,
@@ -54,6 +55,17 @@ const ALL_STATUSES: LeadStatus[] = [
 ];
 
 export default function LeadsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-slate-400">Loading leads...</div>}>
+      <ContactsContent />
+    </Suspense>
+  );
+}
+
+function ContactsContent() {
+  const searchParams = useSearchParams();
+  const folderQuery = searchParams.get("folder") || "ALL";
+
   const {
     currentUser,
     scopedLeads,
@@ -75,7 +87,13 @@ export default function LeadsPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
-  const [selectedFolder, setSelectedFolder] = useState<string>("ALL");
+  const [selectedFolder, setSelectedFolder] = useState<string>(folderQuery);
+
+  useEffect(() => {
+    if (folderQuery) {
+      setSelectedFolder(folderQuery);
+    }
+  }, [folderQuery]);
 
   // Single Add Lead Modal state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -536,6 +554,31 @@ export default function LeadsPage() {
         </CardContent>
       </Card>
 
+      {/* Active Folder Filter Banner */}
+      {selectedFolder !== "ALL" && (
+        <div className="p-3 bg-gradient-to-r from-indigo-50 via-purple-50 to-indigo-50/60 dark:from-slate-900 dark:to-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs flex flex-wrap items-center justify-between gap-3 text-indigo-950 dark:text-indigo-200 shadow-2xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <FolderKanban className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="font-bold text-xs">
+                Active Folder: <span className="text-indigo-700 dark:text-indigo-300">{folders.find(f => f.id === selectedFolder)?.name || selectedFolder}</span>
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Showing {filteredLeads.length} leads assigned to this folder • Leads also appear in &quot;All Leads&quot;
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setSelectedFolder("ALL")}
+            className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 dark:hover:bg-slate-800 cursor-pointer transition-colors shadow-2xs"
+          >
+            Show All Leads ({scopedLeads.length})
+          </button>
+        </div>
+      )}
+
       {/* Leads Content: Responsive Layout */}
       {filteredLeads.length === 0 ? (
         <Card>
@@ -706,10 +749,17 @@ export default function LeadsPage() {
                   <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400">
                     <div className="flex items-center gap-1.5">
                       {lead.folderName ? (
-                        <span className="flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedFolder(lead.folderId || "ALL");
+                          }}
+                          className="flex items-center gap-1 font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        >
                           <FolderKanban className="h-2.5 w-2.5 text-indigo-500" />
                           {lead.folderName}
-                        </span>
+                        </button>
                       ) : (
                         <span>{lead.source}</span>
                       )}
@@ -813,10 +863,20 @@ export default function LeadsPage() {
 
                       <td className="p-4">
                         {lead.folderName ? (
-                          <Badge variant="secondary" className="text-[10px]">
-                            <FolderKanban className="h-3 w-3 mr-1" />
-                            {lead.folderName}
-                          </Badge>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedFolder(lead.folderId || "ALL");
+                            }}
+                            className="cursor-pointer text-left group"
+                            title="Click to filter by this folder"
+                          >
+                            <Badge variant="secondary" className="text-[10px] gap-1 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-950 transition-colors">
+                              <FolderKanban className="h-3 w-3 mr-0.5 text-indigo-500" />
+                              {lead.folderName}
+                            </Badge>
+                          </button>
                         ) : (
                           <span className="text-[11px] text-slate-500">{lead.source}</span>
                         )}

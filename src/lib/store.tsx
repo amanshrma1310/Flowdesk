@@ -1088,6 +1088,22 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         }
         return l;
       });
+
+      setFolders((prevFolders) =>
+        prevFolders.map((f) => {
+          const matching = updated.filter((ld) => ld.folderId === f.id);
+          return {
+            ...f,
+            leadCount: matching.length,
+            newCount: matching.filter((ld) => ld.status === "New").length,
+            contactedCount: matching.filter((ld) => ld.status === "Contacted").length,
+            interestedCount: matching.filter((ld) => ld.status === "Interested" || ld.status === "Positive").length,
+            notInterestedCount: matching.filter((ld) => ld.status === "Not Interested" || ld.status === "Negative").length,
+            convertedCount: matching.filter((ld) => ld.status === "Converted").length,
+          };
+        })
+      );
+
       persist(organization, currentUser, users, updated, folders, templates, campaigns, workflows, forms, responses, sentEmailLogs, smtpSettings, whatsAppSettings);
       return updated;
     });

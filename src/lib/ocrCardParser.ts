@@ -15,8 +15,8 @@ export interface ParsedCardData {
 // Common job designations on business cards
 const JOB_TITLE_REGEX = /\b(CEO|CTO|CFO|COO|Managing\s+Director|Director|Partner|Founder|Co-Founder|President|Vice\s+President|VP|Territory\s+Manager|General\s+Manager|Regional\s+Manager|Branch\s+Manager|Sales\s+Manager|Marketing\s+Manager|Project\s+Manager|Manager|Lead|Head|Consultant|Specialist|Representative|Executive|Associate|Engineer|Architect|Analyst|Advisor|Supervisor|Officer)\b/i;
 
-// Words commonly indicating corporate entity
-const COMPANY_INDICATORS = /\b(Ltd|Limited|Pvt|Private|Inc|Incorporated|Corp|Corporation|LLC|LLP|Technologies|Technology|Solutions|Health\s+Science|Enterprises|Enterprises\s+Ltd|Industries|Infotech|Group|Ventures|Labs|Studio|Services|Agency|Hospital|Pharma|Healthcare|Systems|Software|Holdings|Trading|Associates)\b/i;
+// Words indicating corporate entities (excluding standalone words like 'Software' or 'Systems' which can be in job titles!)
+const COMPANY_INDICATORS = /\b(Ltd|Limited|Pvt|Private|Private\s+Limited|Pvt\s+Ltd|Inc|Incorporated|Corp|Corporation|LLC|LLP|PLC|Pte\s+Ltd|Enterprises|Enterprises\s+Ltd|Industries|Infotech|Ventures|Labs|Laboratories|Laboratory|Studio|Studios|Services|Agency|Agencies|Hospital|Hospitals|Pharma|Pharmaceuticals|Pharmacy|Healthcare|Holdings|Trading|Associates|Consultancy|Consulting|Bank|Banking|International|Global|Logistics|Digital|Communications|Media|Technologies|Technology|Solutions|Health\s+Science)\b/i;
 
 // Words to ignore when detecting person name
 const NON_NAME_WORDS = /\b(tel|phone|mobile|cell|fax|email|mail|web|website|http|https|www|road|rd|street|st|lane|avenue|ave|floor|block|sector|nagar|bazaar|plot|box|pin|pincode|po|hyderabad|mumbai|delhi|bengaluru|bangalore|chennai|kolkata|pune|gurgaon|noida|ahmedabad|jaipur|lucknow|chandigarh|india|usa|uk|canada|germany|texas|california|singapore|dubai|uae)\b/i;
@@ -70,7 +70,7 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
   }
 
   // Extract root domain (e.g. "drreddysnestle.com")
-  const knownDomain = website
+  let knownDomain = website
     ? website.replace(/^(?:https?:\/\/)?(?:www\.)?/, "").split("/")[0].toLowerCase()
     : "";
 
@@ -166,6 +166,11 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
     }
   }
 
+  // If knownDomain was not found from website, derive from email domain
+  if (!knownDomain && email && email.includes("@")) {
+    knownDomain = email.split("@")[1].toLowerCase();
+  }
+
   // -------------------------------------------------------------
   // 3. THIRD PASS: Phone Numbers with Mobile Priority
   // Mobile numbers (M:, Mob:, WhatsApp) take precedence over landlines (T:)
@@ -222,6 +227,7 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
   }
 
   // -------------------------------------------------------------
+  // -------------------------------------------------------------
   // 4. FOURTH PASS: Job Title, Company Name, and Person Name
   // -------------------------------------------------------------
   for (let i = 0; i < rawLines.length; i++) {
@@ -238,8 +244,8 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
       }
     }
 
-    // Check for Company Name (NEVER accept website URLs as company name!)
-    if (!company && COMPANY_INDICATORS.test(line)) {
+    // Check for Company Name: Must match COMPANY_INDICATORS AND not be a Job Title AND not be a Phone
+    if (!company && COMPANY_INDICATORS.test(line) && !JOB_TITLE_REGEX.test(line) && !isPhoneLike(line)) {
       if (!isUrlOrDomain(line)) {
         company = cleanCompanyName(line);
       }
@@ -250,7 +256,7 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
       line.match(/\b\d{6}\b/) ||
       line.match(/(?:road|street|nagar|floor|block|city|india|telangana|delhi|mumbai|bangalore|hyderabad|pune|chennai)/i)
     ) {
-      if (!line.includes("@") && !COMPANY_INDICATORS.test(line) && !isUrlOrDomain(line)) {
+      if (!line.includes("@") && !COMPANY_INDICATORS.test(line) && !isUrlOrDomain(line) && !isPhoneLike(line)) {
         addressParts.push(line);
       }
     }
@@ -262,9 +268,9 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
   }
 
   // -------------------------------------------------------------
-  // 5. FALLBACKS FOR NAME & COMPANY
+  // 5. ENHANCED FALLBACKS FOR NAME & COMPANY
   // -------------------------------------------------------------
-  // Fallback for Name if not deduced by Job Title
+  // 5A. Fallback for Name if not yet deduced
   if (!name && candidateNames.length > 0) {
     const found = candidateNames.find(
       (c) => c.toLowerCase() !== company.toLowerCase() && !addressParts.some((a) => a.includes(c))
@@ -274,11 +280,32 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
     }
   }
 
-  // Fallback for Company from Corporate Header Lines (excluding URLs and person names)
-  if (!company) {
-    for (const line of rawLines) {
-      if (!isUrlOrDomain(line) && !isValidPersonName(line) && !line.includes("@") && !line.match(/^\+?\d/) && line.length > 4) {
-        if (!addressParts.includes(line) && line !== title) {
+  // 5B. Name from Email prefix (e.g. "shubham.sharma@..." -> "Shubham Sharma")
+  if ((!name || candidateNames.length === 0) && email && email.includes("@")) {
+    const userPart = email.split("@")[0].toLowerCase();
+    const parts = userPart
+      .split(/[._-]+/)
+      .filter((p) => p.length >= 2 && !/^(?:info|sales|support|admin|contact|help|mail|office|hello)$/i.test(p));
+    if (parts.length >= 2) {
+      const emailName = parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
+      const matchingLine = rawLines.find((l) => isValidPersonName(l) && parts.some((p) => l.toLowerCase().includes(p)));
+      name = matchingLine ? cleanPersonName(matchingLine) : emailName;
+    }
+  }
+
+  // 5C. Company Detection via Domain Brand Match (e.g. domain is "zerolt.com", card line is "ZEROLT")
+  const domainBrand = knownDomain ? knownDomain.split(".")[0].toLowerCase() : "";
+  if (!company && domainBrand && domainBrand.length >= 3) {
+    if (!/^(?:gmail|yahoo|outlook|hotmail|icloud|proton|rediff|aol)$/i.test(domainBrand)) {
+      for (const line of rawLines) {
+        const lower = line.toLowerCase();
+        if (
+          lower.includes(domainBrand) &&
+          !isUrlOrDomain(line) &&
+          !line.includes("@") &&
+          !isPhoneLike(line) &&
+          !JOB_TITLE_REGEX.test(line)
+        ) {
           company = cleanCompanyName(line);
           break;
         }
@@ -286,11 +313,30 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
     }
   }
 
-  // Fallback for Company from Website Domain
-  if (!company && knownDomain) {
-    const brand = knownDomain.split(".")[0];
-    if (brand && brand.length > 2) {
-      company = brand.charAt(0).toUpperCase() + brand.slice(1);
+  // 5D. Fallback for Company from Corporate Header Lines
+  if (!company) {
+    for (const line of rawLines) {
+      if (
+        !isUrlOrDomain(line) &&
+        !isValidPersonName(line) &&
+        !line.includes("@") &&
+        !isPhoneLike(line) &&
+        !JOB_TITLE_REGEX.test(line) &&
+        line !== name &&
+        line !== title &&
+        !addressParts.includes(line) &&
+        line.length > 3
+      ) {
+        company = cleanCompanyName(line);
+        break;
+      }
+    }
+  }
+
+  // 5E. Fallback for Company from Website Domain Brand
+  if (!company && domainBrand && domainBrand.length >= 3) {
+    if (!/^(?:gmail|yahoo|outlook|hotmail|icloud|proton|rediff|aol)$/i.test(domainBrand)) {
+      company = domainBrand.charAt(0).toUpperCase() + domainBrand.slice(1);
     }
   }
 
@@ -352,11 +398,18 @@ function isUrlOrDomain(str: string): boolean {
   return /^(?:https?:\/\/|www\.)/i.test(str) || /\.(com|in|org|net|co|io|biz|info)\b/i.test(str);
 }
 
+function isPhoneLike(str: string): boolean {
+  return (
+    /^(?:[+\d]|M|Mob|Mobile|T|Tel|Phone|Cell|WhatsApp|WA|Call|Fax)[\s.:/–-]*\+?\d/i.test(str) ||
+    /\b\d{5,}\b/.test(str.replace(/\s+/g, ""))
+  );
+}
+
 function cleanPersonName(str: string): string {
   return str
     .replace(/^[^a-zA-Z]+|[^a-zA-Z.]+$/g, "")
-    // Strip trailing single letter field abbreviations like "Shubham Sharma T" -> "Shubham Sharma"
-    .replace(/\s+[TMEOFWPD]$/i, "")
+    // Strip trailing single uppercase letter or digit abbreviations (e.g. "Shubham Sharma T" or "Aman 1")
+    .replace(/\s+[A-Z\d|]$/, "")
     .replace(/^(?:Name|Mr|Ms|Mrs|Dr)[\s.:/-]+/i, "")
     .trim();
 }
@@ -406,12 +459,16 @@ function cleanPhoneNumber(str: string): string {
 }
 
 function isValidPersonName(str: string): boolean {
-  const cleaned = cleanPersonName(str);
+  if (!str) return false;
+  const s = str.trim();
+  if (isUrlOrDomain(s) || s.includes("@") || isPhoneLike(s)) return false;
+  if (JOB_TITLE_REGEX.test(s)) return false;
+  if (COMPANY_INDICATORS.test(s)) return false;
+
+  const cleaned = cleanPersonName(s);
   if (cleaned.length < 3 || cleaned.length > 40) return false;
-  if (cleaned.includes("@") || isUrlOrDomain(cleaned)) return false;
   if (/\d/.test(cleaned)) return false;
   if (NON_NAME_WORDS.test(cleaned)) return false;
-  if (COMPANY_INDICATORS.test(cleaned)) return false;
 
   // Personal names usually 1 to 4 words (e.g. "Shubham Sharma", "Dr. Amit Verma")
   const words = cleaned.split(/\s+/);

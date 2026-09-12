@@ -50,7 +50,7 @@ function BulkImportContent() {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab") === "ocr" ? "OCR" : "EXCEL";
 
-  const { bulkImportLeads, addLead, organization } = useFlowDesk();
+  const { bulkImportLeads, addLead, organization, folders, createFolder } = useFlowDesk();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [activeTab, setActiveTab] = useState<"EXCEL" | "OCR">(initialTab);
@@ -80,6 +80,11 @@ function BulkImportContent() {
   const [ocrText, setOcrText] = useState("");
   const [ocrSummary, setOcrSummary] = useState("");
   const [isCopiedSummary, setIsCopiedSummary] = useState(false);
+
+  // Folder assignment state for scanned lead
+  const [ocrFolderId, setOcrFolderId] = useState<string>("");
+  const [ocrNewFolderName, setOcrNewFolderName] = useState<string>("");
+  const [isCreatingNewFolder, setIsCreatingNewFolder] = useState<boolean>(false);
 
   // Direct 1-Click Lead Creation from Snapped Photo
   const [isCreatingDirectLead, setIsCreatingDirectLead] = useState(false);
@@ -280,6 +285,15 @@ function BulkImportContent() {
     setIsCreatingDirectLead(true);
 
     try {
+      let targetFolderId = ocrFolderId || undefined;
+      let targetFolderName = folders.find((f) => f.id === ocrFolderId)?.name;
+
+      if (isCreatingNewFolder && ocrNewFolderName.trim()) {
+        const newF = createFolder(ocrNewFolderName.trim());
+        targetFolderId = newF.id;
+        targetFolderName = newF.name;
+      }
+
       const newLead = addLead({
         name: leadNameToSave,
         company: finalCompany,
@@ -290,6 +304,8 @@ function BulkImportContent() {
         photoUrl: photoToUse || undefined,
         photoType: "card",
         notes: finalNotes || "Created directly from camera photo snap",
+        folderId: targetFolderId,
+        folderName: targetFolderName,
       });
 
       // Synchronize with server API
@@ -544,6 +560,9 @@ function BulkImportContent() {
                       setOcrText("");
                       setOcrSummary("");
                       setIsCopiedSummary(false);
+                      setOcrFolderId("");
+                      setOcrNewFolderName("");
+                      setIsCreatingNewFolder(false);
                       setCreatedLeadResult(null);
                       isSubmittingRef.current = false;
                     }}
@@ -745,6 +764,53 @@ function BulkImportContent() {
                           className="bg-white dark:bg-slate-950 font-medium"
                         />
                       </div>
+                    </div>
+
+                    {/* ASSIGN TO FOLDER / LIST */}
+                    <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <FolderKanban className="h-4 w-4 text-amber-500" />
+                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            Assign to Lead Folder / List:
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatingNewFolder(!isCreatingNewFolder);
+                            setOcrNewFolderName("");
+                          }}
+                          className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+                        >
+                          {isCreatingNewFolder ? "← Choose Existing Folder" : "+ Create New Folder"}
+                        </button>
+                      </div>
+
+                      {isCreatingNewFolder ? (
+                        <Input
+                          placeholder="e.g. Exhibition Leads — Sept 2026"
+                          value={ocrNewFolderName}
+                          onChange={(e) => setOcrNewFolderName(e.target.value)}
+                          className="bg-white dark:bg-slate-950 text-xs h-8 font-medium"
+                        />
+                      ) : (
+                        <select
+                          value={ocrFolderId}
+                          onChange={(e) => setOcrFolderId(e.target.value)}
+                          className="w-full h-8 rounded-lg border border-slate-200 dark:border-slate-800 text-xs px-2.5 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-medium"
+                        >
+                          <option value="">📁 Direct Leads (No Folder / General)</option>
+                          {folders.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              📁 {f.name} ({f.leadCount} leads)
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <p className="text-[10px] text-slate-400">
+                        ✨ Lead will appear in &quot;All Leads&quot; AND inside this specific folder list.
+                      </p>
                     </div>
 
                     {/* ACTION BUTTONS: Instant Creation vs Bulk Batch */}

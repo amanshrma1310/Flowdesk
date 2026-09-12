@@ -15,7 +15,6 @@ import {
   Shield,
   Briefcase,
   User,
-  ChevronDown,
   Copy,
   Check,
   Key,
@@ -30,8 +29,7 @@ interface HeaderProps {
 }
 
 export function Header({ onToggleMobileMenu }: HeaderProps) {
-  const { currentUser, users, organization, switchUser } = useFlowDesk();
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const { currentUser, organization } = useFlowDesk();
   const [copiedCode, setCopiedCode] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
@@ -90,67 +88,23 @@ export function Header({ onToggleMobileMenu }: HeaderProps) {
             <span className="hidden sm:inline">Profile & Password</span>
           </button>
 
-          {/* User Switcher Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 transition-all cursor-pointer dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
-            >
-              {currentUser.role === "ADMIN" ? (
-                <Shield className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-              ) : currentUser.role === "MANAGER" ? (
-                <Briefcase className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-              ) : (
-                <User className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-              )}
-              <span>{currentUser.name}</span>
-              <span className="text-[10px] px-1.5 py-0.2 bg-white rounded border border-slate-200 text-slate-600 dark:bg-slate-900 dark:border-slate-700">
-                {currentUser.role}
-              </span>
-              <ChevronDown className="h-3 w-3 text-slate-400" />
-            </button>
-
-            {isUserMenuOpen && (
-              <div
-                className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-xl shadow-xl p-2 z-50 dark:bg-slate-900 dark:border-slate-800 text-xs"
-                onClick={() => setIsUserMenuOpen(false)}
-              >
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">
-                  Active Agency Users ({users.length})
-                </p>
-
-                <div className="space-y-1 max-h-56 overflow-y-auto">
-                  {users.map((u) => (
-                    <button
-                      key={u.id}
-                      onClick={() => switchUser(u.id)}
-                      className={`w-full p-2 rounded-lg text-left transition-colors flex items-center justify-between cursor-pointer ${
-                        currentUser.id === u.id
-                          ? "bg-indigo-50 text-indigo-900 font-bold dark:bg-indigo-950/50 dark:text-indigo-200"
-                          : "hover:bg-slate-50 text-slate-700 dark:text-slate-300"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        {u.role === "ADMIN" ? (
-                          <Shield className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
-                        ) : u.role === "MANAGER" ? (
-                          <Briefcase className="h-3.5 w-3.5 text-purple-600 shrink-0" />
-                        ) : (
-                          <User className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                        )}
-                        <div className="truncate">
-                          <p className="text-xs truncate">{u.name}</p>
-                          <p className="text-[10px] text-slate-400 font-normal truncate">{u.email}</p>
-                        </div>
-                      </div>
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                        {u.role}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+          {/* Active User Pill (Secure: account switching dropdown removed) */}
+          <div
+            onClick={() => setIsProfileModalOpen(true)}
+            className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 transition-all cursor-pointer dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+            title="Logged-in profile. Click to update name & password."
+          >
+            {currentUser.role === "ADMIN" ? (
+              <Shield className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+            ) : currentUser.role === "MANAGER" ? (
+              <Briefcase className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+            ) : (
+              <User className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
             )}
+            <span>{currentUser.name}</span>
+            <span className="text-[10px] px-1.5 py-0.2 bg-white rounded border border-slate-200 text-slate-600 dark:bg-slate-900 dark:border-slate-700">
+              {currentUser.role}
+            </span>
           </div>
 
           {/* Quick Smart Import Button */}
