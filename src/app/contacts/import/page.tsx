@@ -24,6 +24,9 @@ import {
   Mail,
   Building,
   Eye,
+  Copy,
+  FileText,
+  ClipboardCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -75,6 +78,8 @@ function BulkImportContent() {
   const [ocrPhone, setOcrPhone] = useState("");
   const [ocrNotes, setOcrNotes] = useState("");
   const [ocrText, setOcrText] = useState("");
+  const [ocrSummary, setOcrSummary] = useState("");
+  const [isCopiedSummary, setIsCopiedSummary] = useState(false);
 
   // Direct 1-Click Lead Creation from Snapped Photo
   const [isCreatingDirectLead, setIsCreatingDirectLead] = useState(false);
@@ -83,6 +88,36 @@ function BulkImportContent() {
   const [scanStatusMessage, setScanStatusMessage] = useState<string>("");
   const [createdLeadResult, setCreatedLeadResult] = useState<{ id: string; name: string } | null>(null);
   const isSubmittingRef = React.useRef(false);
+
+  const buildSummary = (n = ocrName, c = ocrCompany, p = ocrPhone, e = ocrEmail, notes = ocrNotes) => {
+    const parts: string[] = [];
+    if (n.trim()) parts.push(`👤 Name: ${n.trim()}`);
+    if (c.trim()) parts.push(`🏢 Company: ${c.trim()}`);
+    if (p.trim()) parts.push(`📱 Phone / WhatsApp: ${p.trim()}`);
+    if (e.trim()) parts.push(`✉️ Email: ${e.trim()}`);
+    if (notes.trim()) parts.push(`📝 Notes: ${notes.trim()}`);
+    return parts.join("\n");
+  };
+
+  const syncFieldsFromSummaryText = (text: string) => {
+    const lines = text.split("\n");
+    for (const l of lines) {
+      const lower = l.toLowerCase();
+      if (lower.includes("name:") || lower.includes("👤")) {
+        const val = l.replace(/^[^:]*:\s*/, "").trim();
+        if (val) setOcrName(val);
+      } else if (lower.includes("company:") || lower.includes("🏢")) {
+        const val = l.replace(/^[^:]*:\s*/, "").trim();
+        if (val) setOcrCompany(val);
+      } else if (lower.includes("phone") || lower.includes("whatsapp") || lower.includes("📱")) {
+        const val = l.replace(/^[^:]*:\s*/, "").trim();
+        if (val) setOcrPhone(val);
+      } else if (lower.includes("email:") || lower.includes("✉️") || lower.includes("@")) {
+        const val = l.replace(/^[^:]*:\s*/, "").replace(/[^\w.@+-]/g, "").trim();
+        if (val.includes("@")) setOcrEmail(val);
+      }
+    }
+  };
 
   const reScanCurrentPhoto = async () => {
     if (!ocrPhotoUrl) return;
@@ -97,6 +132,11 @@ function BulkImportContent() {
         if (clientRes.data.phone || clientRes.data.whatsApp) setOcrPhone(clientRes.data.phone || clientRes.data.whatsApp);
         if (clientRes.data.email) setOcrEmail(clientRes.data.email);
         if (clientRes.data.notes) setOcrNotes(clientRes.data.notes);
+        if (clientRes.data.summary) {
+          setOcrSummary(clientRes.data.summary);
+        } else {
+          setOcrSummary(buildSummary(clientRes.data.name, clientRes.data.company, clientRes.data.phone, clientRes.data.email, clientRes.data.notes));
+        }
 
         setScanStatusMessage(
           `✨ Scanned in ${(clientRes.durationMs / 1000).toFixed(1)}s! Extracted: "${clientRes.data.name || "Contact"}"${clientRes.data.phone ? ` • ${clientRes.data.phone}` : ""}${clientRes.data.email ? ` • ${clientRes.data.email}` : ""}`
@@ -117,6 +157,11 @@ function BulkImportContent() {
         if (json.data.phone || json.data.whatsApp) setOcrPhone(json.data.phone || json.data.whatsApp);
         if (json.data.email) setOcrEmail(json.data.email);
         if (json.data.notes) setOcrNotes(json.data.notes);
+        if (json.data.summary) {
+          setOcrSummary(json.data.summary);
+        } else {
+          setOcrSummary(buildSummary(json.data.name, json.data.company, json.data.phone, json.data.email, json.data.notes));
+        }
 
         setScanStatusMessage(
           `✨ Scanned in ${(json.durationMs ? json.durationMs / 1000 : 0.8).toFixed(1)}s! Extracted: "${json.data.name || "Contact"}"${json.data.phone ? ` • ${json.data.phone}` : ""}${json.data.email ? ` • ${json.data.email}` : ""}`
@@ -482,6 +527,11 @@ function BulkImportContent() {
                       if (autoFields?.phone) setOcrPhone(autoFields.phone);
                       if (autoFields?.email) setOcrEmail(autoFields.email);
                       if (autoFields?.notes) setOcrNotes(autoFields.notes);
+                      if (autoFields?.summary) {
+                        setOcrSummary(autoFields.summary);
+                      } else {
+                        setOcrSummary(buildSummary(autoFields?.name || "", autoFields?.company || "", autoFields?.phone || "", autoFields?.email || "", autoFields?.notes || ""));
+                      }
                     }}
                     onRemovePhoto={() => {
                       setOcrPhotoUrl("");
@@ -492,6 +542,8 @@ function BulkImportContent() {
                       setOcrEmail("");
                       setOcrNotes("");
                       setOcrText("");
+                      setOcrSummary("");
+                      setIsCopiedSummary(false);
                       setCreatedLeadResult(null);
                       isSubmittingRef.current = false;
                     }}
@@ -582,13 +634,74 @@ function BulkImportContent() {
                       </div>
                     )}
 
+                    {/* ALL-IN-ONE CARD SUMMARY FIELD */}
+                    {(ocrSummary || ocrName || ocrPhone || ocrEmail) && (
+                      <div className="p-3.5 bg-gradient-to-br from-slate-50 to-indigo-50/40 dark:from-slate-900/90 dark:to-indigo-950/30 rounded-xl border border-indigo-200/80 dark:border-indigo-800/60 space-y-2 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                            <span className="text-xs font-bold text-slate-900 dark:text-white">
+                              All-in-One Card Summary:
+                            </span>
+                            <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100/70 dark:bg-indigo-950 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                              Unified Overview
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              const textToCopy = ocrSummary || buildSummary();
+                              if (!textToCopy) return;
+                              navigator.clipboard.writeText(textToCopy);
+                              setIsCopiedSummary(true);
+                              setTimeout(() => setIsCopiedSummary(false), 2000);
+                            }}
+                            className="h-6 px-2 text-[11px] font-semibold text-slate-600 hover:text-indigo-600 gap-1 cursor-pointer"
+                          >
+                            {isCopiedSummary ? (
+                              <>
+                                <Check className="h-3 w-3 text-emerald-600" />
+                                <span className="text-emerald-600 font-bold">Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3 w-3" />
+                                <span>Copy Summary</span>
+                              </>
+                            )}
+                          </Button>
+                        </div>
+
+                        <textarea
+                          rows={4}
+                          value={ocrSummary || buildSummary()}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOcrSummary(val);
+                            syncFieldsFromSummaryText(val);
+                          }}
+                          placeholder="All scanned card details will appear here as a complete summary..."
+                          className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-mono leading-relaxed text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 focus:outline-hidden resize-y shadow-2xs"
+                        />
+                        <p className="text-[11px] text-slate-400">
+                          ✨ All contact data collected in one place. You can edit this summary directly or adjust individual fields below.
+                        </p>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                       <div>
                         <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Full Name / Title</label>
                         <Input
                           placeholder="e.g. Amit Sharma (or auto-named from card)"
                           value={ocrName}
-                          onChange={(e) => setOcrName(e.target.value)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setOcrName(v);
+                            setOcrSummary(buildSummary(v, ocrCompany, ocrPhone, ocrEmail));
+                          }}
                           className="bg-white dark:bg-slate-950 font-medium"
                         />
                       </div>
@@ -597,7 +710,11 @@ function BulkImportContent() {
                         <Input
                           placeholder="e.g. Apex Solutions"
                           value={ocrCompany}
-                          onChange={(e) => setOcrCompany(e.target.value)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setOcrCompany(v);
+                            setOcrSummary(buildSummary(ocrName, v, ocrPhone, ocrEmail));
+                          }}
                           className="bg-white dark:bg-slate-950 font-medium"
                         />
                       </div>
@@ -606,7 +723,11 @@ function BulkImportContent() {
                         <Input
                           placeholder="e.g. +91 98765 00000"
                           value={ocrPhone}
-                          onChange={(e) => setOcrPhone(e.target.value)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setOcrPhone(v);
+                            setOcrSummary(buildSummary(ocrName, ocrCompany, v, ocrEmail));
+                          }}
                           className="bg-white dark:bg-slate-950 font-medium font-mono"
                         />
                       </div>
@@ -616,7 +737,11 @@ function BulkImportContent() {
                           type="email"
                           placeholder="e.g. amit@apexsolutions.com"
                           value={ocrEmail}
-                          onChange={(e) => setOcrEmail(e.target.value)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setOcrEmail(v);
+                            setOcrSummary(buildSummary(ocrName, ocrCompany, ocrPhone, v));
+                          }}
                           className="bg-white dark:bg-slate-950 font-medium"
                         />
                       </div>

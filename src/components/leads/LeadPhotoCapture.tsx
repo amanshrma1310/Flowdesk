@@ -22,6 +22,8 @@ export interface ExtractedLeadData {
   company?: string;
   notes?: string;
   title?: string;
+  website?: string;
+  summary?: string;
   rawText?: string;
   confidence?: number;
 }
@@ -185,6 +187,8 @@ export function LeadPhotoCapture({
             company: parsed.company,
             phone: parsed.phone || parsed.whatsApp,
             email: parsed.email,
+            website: parsed.website,
+            summary: parsed.summary,
             notes: parsed.notes || `Scanned via AI OCR (Confidence: ${clientResult.confidence || 85}%)`,
             title: parsed.title,
             rawText: clientResult.rawText,
@@ -233,6 +237,8 @@ export function LeadPhotoCapture({
               company: parsed.company,
               phone: parsed.phone || parsed.whatsApp,
               email: parsed.email,
+              website: parsed.website,
+              summary: parsed.summary,
               notes: parsed.notes || `Scanned from business card (Confidence: ${json.confidence || 75}%)`,
               title: parsed.title,
               rawText: json.rawText,

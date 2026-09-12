@@ -133,13 +133,30 @@ export async function recognizeCardInBrowser(
       },
     });
 
-    const rawText = ocrResult?.data?.text || "";
-    const confidence = Math.round(ocrResult?.data?.confidence || 0);
+    let rawText = ocrResult?.data?.text || "";
+    let confidence = Math.round(ocrResult?.data?.confidence || 0);
+    let parsed = parseBusinessCardText(rawText);
 
-    console.log("[ClientOCR] Recognized raw text in browser:", rawText);
+    // If email or phone was not detected on pass 1, run a high-resolution zoom pass on center card area
+    if ((!parsed.email || !parsed.phone) && sourceElement) {
+      try {
+        onProgress?.("Deep-scanning card text & contact lines...");
+        const zoomedCanvas = enhanceImageForOcr(sourceElement, true);
+        const zoomResult = await Tesseract.recognize(zoomedCanvas, "eng");
+        const zoomText = zoomResult?.data?.text || "";
+        if (zoomText) {
+          rawText = rawText + "\n" + zoomText;
+          parsed = parseBusinessCardText(rawText);
+          if (zoomResult?.data?.confidence) {
+            confidence = Math.max(confidence, Math.round(zoomResult.data.confidence));
+          }
+        }
+      } catch (e) {
+        console.warn("[ClientOCR] Zoom pass skipped:", e);
+      }
+    }
 
-    // Parse business card fields
-    const parsed = parseBusinessCardText(rawText);
+    console.log("[ClientOCR] Final recognized card data:", parsed);
 
     const hasRealData = Boolean(
       (parsed.name &&
@@ -167,6 +184,7 @@ export async function recognizeCardInBrowser(
           website: "",
           address: "",
           notes: rawText ? `Unparsed card text:\n${rawText}` : "",
+          summary: "",
           rawText,
         },
         error: "No clear contact details detected on this image",

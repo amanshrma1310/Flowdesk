@@ -8,6 +8,7 @@ export interface ParsedCardData {
   website: string;
   address: string;
   notes: string;
+  summary: string;
   rawText: string;
 }
 
@@ -32,6 +33,7 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
       website: "",
       address: "",
       notes: "",
+      summary: "",
       rawText: "",
     };
   }
@@ -292,6 +294,25 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
     }
   }
 
+  // Fallback for Email: If still empty, synthesize corporate email from person's name + card domain
+  if (!email && name && knownDomain) {
+    if (!/^(?:gmail|yahoo|outlook|hotmail|icloud|proton|rediff|aol)\b/i.test(knownDomain)) {
+      const nameParts = name
+        .toLowerCase()
+        .replace(/\b(dr|mr|ms|mrs|shri|er|ca|adv)\b\.?/gi, "")
+        .replace(/[^a-z\s]/g, "")
+        .trim()
+        .split(/\s+/)
+        .filter((w) => w.length >= 2);
+
+      if (nameParts.length >= 2) {
+        email = `${nameParts[0]}.${nameParts[nameParts.length - 1]}@${knownDomain}`;
+      } else if (nameParts.length === 1) {
+        email = `${nameParts[0]}@${knownDomain}`;
+      }
+    }
+  }
+
   // Assemble notes from remaining useful details
   const notesLines: string[] = [];
   if (title) notesLines.push(`Designation: ${title}`);
@@ -300,6 +321,17 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
   }
   if (website) notesLines.push(`Website: ${website}`);
   if (addressParts.length > 0) notesLines.push(`Address: ${addressParts.join(", ")}`);
+
+  // Build unified summary text (all-in-one data field)
+  const summaryParts: string[] = [];
+  if (name.trim()) summaryParts.push(`👤 Name: ${name.trim()}`);
+  if (company.trim()) summaryParts.push(`🏢 Company: ${company.trim()}`);
+  if (phone.trim()) summaryParts.push(`📱 Phone / WhatsApp: ${phone.trim()}`);
+  if (email.trim()) summaryParts.push(`✉️ Email: ${email.trim()}`);
+  if (title.trim()) summaryParts.push(`💼 Designation: ${title.trim()}`);
+  if (website.trim()) summaryParts.push(`🌐 Website: ${website.trim()}`);
+  if (addressParts.length > 0) summaryParts.push(`📍 Address: ${addressParts.join(", ").trim()}`);
+  const summaryText = summaryParts.join("\n");
 
   return {
     name: name.trim(),
@@ -311,6 +343,7 @@ export function parseBusinessCardText(rawText: string): ParsedCardData {
     website: website.trim(),
     address: addressParts.join(", ").trim(),
     notes: notesLines.join("\n").trim(),
+    summary: summaryText,
     rawText: rawLines.join("\n"),
   };
 }

@@ -133,6 +133,7 @@ export async function scanBusinessCardImage(imageBuffer: Buffer): Promise<CardOc
           website: "",
           address: "",
           notes: rawText ? `Unparsed card text:\n${rawText}` : "",
+          summary: "",
           rawText,
         },
         error: "No clear contact details detected on this image",
