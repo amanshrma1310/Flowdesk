@@ -23,6 +23,8 @@ import {
   Eye,
   X,
   Maximize2,
+  AlertCircle,
+  Edit3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -30,7 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useFlowDesk } from "@/lib/store";
-import { LeadStatus } from "@/lib/types";
+import { LeadStatus, Lead } from "@/lib/types";
 import { LeadPhotoCapture } from "@/components/leads/LeadPhotoCapture";
 
 const ALL_STATUSES: LeadStatus[] = [
@@ -81,6 +83,22 @@ export default function LeadProfilePage() {
   const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string>("");
   const [capturedPhotoType, setCapturedPhotoType] = useState<"card" | "person" | "document">("card");
 
+  // AI OCR Scanning & Editing State
+  const [isScanningOCR, setIsScanningOCR] = useState(false);
+  const [ocrAlert, setOcrAlert] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [pendingExtractedFields, setPendingExtractedFields] = useState<any | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    company: "",
+    email: "",
+    phone: "",
+    whatsApp: "",
+    website: "",
+    status: "New" as LeadStatus,
+    notes: "",
+  });
+
   if (!lead) {
     return (
       <div className="p-12 text-center space-y-3">
@@ -128,19 +146,180 @@ export default function LeadProfilePage() {
     setActiveAction("NONE");
   };
 
+  const handleAutoExtractFromPhoto = async (targetPhotoUrl?: string) => {
+    const photoToScan = targetPhotoUrl || lead.photoUrl;
+    if (!photoToScan) {
+      setOcrAlert({ type: "error", message: "No photo or business card attached to scan." });
+      return;
+    }
+
+    setIsScanningOCR(true);
+    setOcrAlert(null);
+
+    try {
+      const res = await fetch("/api/v1/ocr/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: photoToScan }),
+      });
+
+      const json = await res.json();
+      if (json.success && json.data) {
+        const { name, company, phone, whatsApp, email, notes, title, address, website } = json.data;
+
+        const updates: Partial<Lead> = {};
+        if (name && name.trim().length >= 2) {
+          updates.name = name.trim();
+        }
+        if (company) updates.company = company.trim();
+        if (phone) updates.phone = phone.trim();
+        if (whatsApp) updates.whatsApp = whatsApp.trim();
+        if (email) updates.email = email.trim();
+        if (website) updates.website = website.trim();
+
+        const extraNotesParts: string[] = [];
+        if (title) extraNotesParts.push(`Designation: ${title}`);
+        if (address) extraNotesParts.push(`Address: ${address}`);
+        if (website) extraNotesParts.push(`Website: ${website}`);
+        if (extraNotesParts.length > 0) {
+          updates.notes = lead.notes ? `${lead.notes}\n${extraNotesParts.join("\n")}` : extraNotesParts.join("\n");
+        }
+
+        updateLead(lead.id, updates);
+
+        addLeadActivity(lead.id, {
+          action: "AI OCR Auto-Extraction Completed",
+          channel: "System",
+          details: `Card parsed: Name: ${name || lead.name}, Company: ${company || "N/A"}, Phone: ${whatsApp || phone || "N/A"}, Email: ${email || "N/A"}`,
+          actor: currentUser?.name || "AI OCR Engine",
+        });
+
+        // Sync with server API
+        try {
+          await fetch("/api/v1/contacts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...lead,
+              ...updates,
+              id: lead.id,
+              agencyId: currentUser?.role,
+            }),
+          });
+        } catch (err) {
+          console.warn("API sync error:", err);
+        }
+
+        setOcrAlert({
+          type: "success",
+          message: `Card details extracted successfully! Populated Name: "${name || lead.name}", Company: "${company || "N/A"}", Phone: "${whatsApp || phone || "N/A"}", Email: "${email || "N/A"}"`,
+        });
+      } else {
+        setOcrAlert({
+          type: "error",
+          message: json.error || "Could not detect clear text on this image. You can edit details manually using the Edit button.",
+        });
+      }
+    } catch (err: any) {
+      console.error("OCR Auto-extraction error:", err);
+      setOcrAlert({
+        type: "error",
+        message: err.message || "Failed to scan photo. Please check your connection and try again.",
+      });
+    } finally {
+      setIsScanningOCR(false);
+    }
+  };
+
+  const openEditModal = () => {
+    setEditFormData({
+      name: lead.name,
+      company: lead.company || "",
+      email: lead.email || "",
+      phone: lead.phone || lead.whatsApp || "",
+      whatsApp: lead.whatsApp || lead.phone || "",
+      website: lead.website || "",
+      status: lead.status,
+      notes: lead.notes || "",
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEditLead = (e: React.FormEvent) => {
+    e.preventDefault();
+    const updates: Partial<Lead> = {
+      name: editFormData.name.trim() || lead.name,
+      company: editFormData.company.trim(),
+      email: editFormData.email.trim(),
+      phone: editFormData.phone.trim(),
+      whatsApp: editFormData.whatsApp.trim() || editFormData.phone.trim(),
+      website: editFormData.website.trim(),
+      status: editFormData.status,
+      notes: editFormData.notes.trim(),
+    };
+    updateLead(lead.id, updates);
+    addLeadActivity(lead.id, {
+      action: "Contact Details Updated",
+      channel: "System",
+      details: `Updated by ${currentUser?.name || "User"}`,
+      actor: currentUser?.name || "User",
+    });
+    // Sync with server API
+    try {
+      fetch("/api/v1/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...lead,
+          ...updates,
+          id: lead.id,
+          agencyId: currentUser?.role,
+        }),
+      }).catch(() => {});
+    } catch (err) {}
+    setIsEditModalOpen(false);
+  };
+
   const handleSavePhoto = () => {
     if (!capturedPhotoUrl) return;
-    updateLead(lead.id, {
+    const updates: Partial<Lead> = {
       photoUrl: capturedPhotoUrl,
       photoType: capturedPhotoType,
-    });
+    };
+    if (pendingExtractedFields) {
+      if (pendingExtractedFields.name && (lead.name.startsWith("Card Lead") || lead.name.startsWith("New Lead") || !lead.name || lead.name === "Contact")) {
+        updates.name = pendingExtractedFields.name;
+      }
+      if (pendingExtractedFields.company && !lead.company) updates.company = pendingExtractedFields.company;
+      if (pendingExtractedFields.phone && (!lead.phone || !lead.whatsApp)) {
+        updates.phone = pendingExtractedFields.phone;
+        updates.whatsApp = pendingExtractedFields.phone;
+      }
+      if (pendingExtractedFields.email && !lead.email) updates.email = pendingExtractedFields.email;
+      if (pendingExtractedFields.notes && !lead.notes) updates.notes = pendingExtractedFields.notes;
+    }
+    updateLead(lead.id, updates);
     addLeadActivity(lead.id, {
       action: "Photo / Card Updated",
       channel: "System",
       details: `${capturedPhotoType === "card" ? "Business card" : "Photo"} attached to contact profile`,
       actor: currentUser?.name || "User",
     });
+    // Sync with server API
+    try {
+      fetch("/api/v1/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...lead,
+          ...updates,
+          id: lead.id,
+          agencyId: currentUser?.role,
+        }),
+      }).catch(() => {});
+    } catch (err) {}
     setIsPhotoModalOpen(false);
+    setPendingExtractedFields(null);
   };
 
   const handleRemovePhoto = () => {
@@ -279,6 +458,28 @@ export default function LeadProfilePage() {
 
             {/* Quick Action Triggers */}
             <div className="flex flex-wrap items-center gap-2">
+              {lead.photoUrl && (
+                <Button
+                  size="sm"
+                  onClick={() => handleAutoExtractFromPhoto()}
+                  disabled={isScanningOCR}
+                  className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-bold gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Sparkles className={`h-3.5 w-3.5 ${isScanningOCR ? "animate-spin" : "text-amber-300"}`} />
+                  <span>{isScanningOCR ? "Scanning Card..." : "Auto-Fill OCR"}</span>
+                </Button>
+              )}
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={openEditModal}
+                className="text-xs font-bold gap-1.5 border-slate-300 text-slate-700 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
+              >
+                <Edit3 className="h-3.5 w-3.5 text-slate-500" />
+                <span>Edit Lead</span>
+              </Button>
+
               <Button
                 size="sm"
                 onClick={() => setActiveAction(activeAction === "WHATSAPP" ? "NONE" : "WHATSAPP")}
@@ -334,6 +535,35 @@ export default function LeadProfilePage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* OCR Status Banner */}
+      {ocrAlert && (
+        <div
+          className={`p-4 rounded-xl border flex items-start justify-between gap-3 animate-in fade-in duration-200 ${
+            ocrAlert.type === "success"
+              ? "bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-950/50 dark:border-emerald-800 dark:text-emerald-100"
+              : "bg-rose-50 border-rose-300 text-rose-900 dark:bg-rose-950/50 dark:border-rose-800 dark:text-rose-100"
+          }`}
+        >
+          <div className="flex items-start gap-2 text-xs">
+            {ocrAlert.type === "success" ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+            )}
+            <div>
+              <p className="font-bold">{ocrAlert.type === "success" ? "AI OCR Extraction Result" : "OCR Error"}</p>
+              <p className="mt-0.5">{ocrAlert.message}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setOcrAlert(null)}
+            className="text-slate-400 hover:text-slate-600 text-xs cursor-pointer font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* QUICK ACTION DRAWER */}
       {activeAction === "EMAIL" && (
@@ -487,20 +717,19 @@ export default function LeadProfilePage() {
         <div className="space-y-6">
           {/* Photo & Card Preview Card */}
           {lead.photoUrl ? (
-            <Card>
-              <CardHeader className="p-4 pb-2">
-                <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                  <span>Attached Photo / Card</span>
-                  <button
-                    onClick={() => setIsLightboxOpen(true)}
-                    className="text-[10px] text-indigo-600 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
-                  >
-                    <Maximize2 className="h-3 w-3" />
-                    <span>Expand</span>
-                  </button>
+            <Card className="border-indigo-200 shadow-xs overflow-hidden">
+              <CardHeader className="p-4 pb-2 bg-gradient-to-r from-indigo-50/50 to-purple-50/30 dark:bg-slate-900">
+                <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Camera className="h-3.5 w-3.5 text-indigo-600" />
+                    <span>Attached Card / Photo</span>
+                  </div>
+                  <Badge variant="purple" className="text-[10px] capitalize">
+                    {lead.photoType || "Card"}
+                  </Badge>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-4 pt-1 space-y-2">
+              <CardContent className="p-4 pt-2 space-y-3">
                 <div
                   onClick={() => setIsLightboxOpen(true)}
                   className="rounded-xl overflow-hidden border border-slate-200 cursor-pointer group relative shadow-2xs"
@@ -510,25 +739,42 @@ export default function LeadProfilePage() {
                     alt={lead.name}
                     className="w-full h-44 object-cover group-hover:scale-105 transition-transform"
                   />
-                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <span className="px-2 py-1 bg-black/60 text-white text-xs font-bold rounded-lg backdrop-blur-xs">
-                      View Full Size
+                  <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <span className="px-2.5 py-1 bg-black/70 text-white text-xs font-bold rounded-lg backdrop-blur-xs flex items-center gap-1">
+                      <Eye className="h-3.5 w-3.5" />
+                      <span>View Full Image</span>
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[11px] text-slate-400">
-                    Type: <strong className="text-slate-700 dark:text-slate-300 capitalize">{lead.photoType || "Card"}</strong>
-                  </span>
+                {/* Primary 1-Click AI OCR Auto-Fill Button */}
+                <Button
+                  type="button"
+                  onClick={() => handleAutoExtractFromPhoto()}
+                  disabled={isScanningOCR}
+                  className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-bold gap-2 shadow-xs cursor-pointer"
+                >
+                  <Sparkles className={`h-3.5 w-3.5 ${isScanningOCR ? "animate-spin" : "text-amber-300"}`} />
+                  <span>{isScanningOCR ? "Scanning Card with AI OCR..." : "🔍 Auto-Fill Details from Card Photo (AI OCR)"}</span>
+                </Button>
+
+                <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
                   <button
                     onClick={() => {
                       setCapturedPhotoUrl(lead.photoUrl || "");
                       setIsPhotoModalOpen(true);
                     }}
-                    className="text-[11px] text-indigo-600 font-semibold hover:underline cursor-pointer"
+                    className="text-[11px] text-indigo-600 font-semibold hover:underline cursor-pointer flex items-center gap-1"
                   >
-                    Replace Photo
+                    <Camera className="h-3 w-3" />
+                    <span>Replace Photo</span>
+                  </button>
+                  <button
+                    onClick={() => setIsLightboxOpen(true)}
+                    className="text-[11px] text-slate-500 hover:text-slate-700 cursor-pointer flex items-center gap-1"
+                  >
+                    <Maximize2 className="h-3 w-3" />
+                    <span>Enlarge</span>
                   </button>
                 </div>
               </CardContent>
@@ -541,7 +787,7 @@ export default function LeadProfilePage() {
                   No Photo or Card Attached
                 </p>
                 <p className="text-[11px] text-slate-400">
-                  Click below to take a picture with your webcam/phone camera or upload a business card image.
+                  Click below to snap a picture of a business card or upload an image.
                 </p>
                 <Button
                   size="sm"
@@ -549,7 +795,7 @@ export default function LeadProfilePage() {
                     setCapturedPhotoUrl("");
                     setIsPhotoModalOpen(true);
                   }}
-                  className="text-xs bg-indigo-600 text-white hover:bg-indigo-700 gap-1.5"
+                  className="text-xs bg-indigo-600 text-white hover:bg-indigo-700 gap-1.5 cursor-pointer"
                 >
                   <Camera className="h-3.5 w-3.5" />
                   <span>Snap / Upload Photo</span>
@@ -558,12 +804,43 @@ export default function LeadProfilePage() {
             </Card>
           )}
 
+          {/* Missing fields alert banner if card is present */}
+          {lead.photoUrl && (!lead.company || !lead.email || (!lead.phone && !lead.whatsApp)) && (
+            <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-2xl space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900 dark:text-amber-200">
+                <Sparkles className="h-4 w-4 text-amber-600 shrink-0" />
+                <span>Card photo attached without text details</span>
+              </div>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
+                We detected an attached card. Click below to automatically read the card text with AI OCR and fill Name, Company, Phone & Email!
+              </p>
+              <Button
+                size="sm"
+                disabled={isScanningOCR}
+                onClick={() => handleAutoExtractFromPhoto()}
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Sparkles className={`h-3.5 w-3.5 ${isScanningOCR ? "animate-spin" : ""}`} />
+                <span>{isScanningOCR ? "Extracting Data..." : "⚡ 1-Click Auto-Fill with OCR"}</span>
+              </Button>
+            </div>
+          )}
+
           {/* Contact Details Card */}
           <Card>
-            <CardHeader className="p-5 pb-3">
+            <CardHeader className="p-5 pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">
                 Contact Information
               </CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={openEditModal}
+                className="h-7 text-xs px-2.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50 dark:border-indigo-800 dark:hover:bg-indigo-950 cursor-pointer"
+              >
+                <Edit3 className="h-3 w-3 mr-1" />
+                <span>Edit</span>
+              </Button>
             </CardHeader>
             <CardContent className="p-5 pt-0 space-y-3 text-xs">
               <div className="space-y-1">
@@ -674,8 +951,16 @@ export default function LeadProfilePage() {
           <div className="space-y-4 pt-2">
             <LeadPhotoCapture
               currentPhotoUrl={capturedPhotoUrl}
-              onPhotoCaptured={(url) => setCapturedPhotoUrl(url)}
-              onRemovePhoto={() => setCapturedPhotoUrl("")}
+              onPhotoCaptured={(url, autoFields) => {
+                setCapturedPhotoUrl(url);
+                if (autoFields) {
+                  setPendingExtractedFields(autoFields);
+                }
+              }}
+              onRemovePhoto={() => {
+                setCapturedPhotoUrl("");
+                setPendingExtractedFields(null);
+              }}
             />
 
             <DialogFooter className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -768,6 +1053,114 @@ export default function LeadProfilePage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* EDIT LEAD DETAILS MODAL */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="max-w-lg bg-white dark:bg-slate-900 max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <Edit3 className="h-4 w-4 text-indigo-600" />
+              <span>Edit Lead Information</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Update contact details, company name, phone, email, and notes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveEditLead} className="space-y-3 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Full Name *</label>
+                <Input
+                  required
+                  value={editFormData.name}
+                  onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                  placeholder="e.g. John Doe"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Company</label>
+                <Input
+                  value={editFormData.company}
+                  onChange={(e) => setEditFormData({ ...editFormData, company: e.target.value })}
+                  placeholder="e.g. Acme Corp"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Phone Number</label>
+                <Input
+                  value={editFormData.phone}
+                  onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
+                  placeholder="e.g. +91 98765 43210"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">WhatsApp Number</label>
+                <Input
+                  value={editFormData.whatsApp}
+                  onChange={(e) => setEditFormData({ ...editFormData, whatsApp: e.target.value })}
+                  placeholder="e.g. +91 98765 43210"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Work Email</label>
+                <Input
+                  type="email"
+                  value={editFormData.email}
+                  onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                  placeholder="e.g. john@acme.com"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Website</label>
+                <Input
+                  value={editFormData.website}
+                  onChange={(e) => setEditFormData({ ...editFormData, website: e.target.value })}
+                  placeholder="e.g. www.acme.com"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="font-semibold text-slate-700 dark:text-slate-300 text-xs block mb-1">Status</label>
+              <select
+                value={editFormData.status}
+                onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value as LeadStatus })}
+                className="w-full text-xs font-semibold rounded-lg px-3 py-2 bg-white border border-slate-200 dark:bg-slate-800"
+              >
+                {ALL_STATUSES.map((st) => (
+                  <option key={st} value={st}>{st}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="font-semibold text-slate-700 dark:text-slate-300 text-xs block mb-1">Notes / Address</label>
+              <textarea
+                rows={3}
+                value={editFormData.notes}
+                onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
+                placeholder="Additional details from card, meeting notes, etc."
+                className="w-full text-xs rounded-lg p-2.5 bg-white border border-slate-200 dark:bg-slate-800"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsEditModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs">
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

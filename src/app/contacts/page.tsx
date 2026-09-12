@@ -102,6 +102,7 @@ export default function LeadsPage() {
   const [attachModalLead, setAttachModalLead] = useState<Lead | null>(null);
   const [newAttachedPhotoUrl, setNewAttachedPhotoUrl] = useState<string>("");
   const [newAttachedPhotoType, setNewAttachedPhotoType] = useState<"card" | "person" | "document">("card");
+  const [pendingAttachFields, setPendingAttachFields] = useState<any | null>(null);
 
   const filteredLeads = useMemo(() => {
     return scopedLeads.filter((lead) => {
@@ -185,18 +186,45 @@ export default function LeadsPage() {
 
   const handleSaveAttachedPhoto = () => {
     if (!attachModalLead || !newAttachedPhotoUrl) return;
-    updateLead(attachModalLead.id, {
+    const updates: Partial<Lead> = {
       photoUrl: newAttachedPhotoUrl,
       photoType: newAttachedPhotoType,
-    });
+    };
+    if (pendingAttachFields) {
+      if (pendingAttachFields.name && (attachModalLead.name.startsWith("Card Lead") || attachModalLead.name.startsWith("New Lead") || !attachModalLead.name || attachModalLead.name === "Contact")) {
+        updates.name = pendingAttachFields.name;
+      }
+      if (pendingAttachFields.company && !attachModalLead.company) updates.company = pendingAttachFields.company;
+      if (pendingAttachFields.phone && (!attachModalLead.phone || !attachModalLead.whatsApp)) {
+        updates.phone = pendingAttachFields.phone;
+        updates.whatsApp = pendingAttachFields.phone;
+      }
+      if (pendingAttachFields.email && !attachModalLead.email) updates.email = pendingAttachFields.email;
+      if (pendingAttachFields.notes && !attachModalLead.notes) updates.notes = pendingAttachFields.notes;
+    }
+    updateLead(attachModalLead.id, updates);
     addLeadActivity(attachModalLead.id, {
       action: "Photo Attached to Lead",
       channel: "System",
-      details: `${newAttachedPhotoType === "card" ? "Business Card" : "Photo"} attached by ${currentUser?.name || "User"}`,
+      details: `${newAttachedPhotoType === "card" ? "Business Card" : "Photo"} attached by ${currentUser?.name || "User"}${pendingAttachFields?.name ? " (OCR auto-filled details)" : ""}`,
       actor: currentUser?.name || "User",
     });
+    // Sync with server API
+    try {
+      fetch("/api/v1/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...attachModalLead,
+          ...updates,
+          id: attachModalLead.id,
+          agencyId: currentUser?.role,
+        }),
+      }).catch(() => {});
+    } catch (err) {}
     setAttachModalLead(null);
     setNewAttachedPhotoUrl("");
+    setPendingAttachFields(null);
   };
 
   const openSnapLeadModal = () => {
@@ -701,15 +729,19 @@ export default function LeadsPage() {
                   onPhotoCaptured={(dataUrl, autoFields) => {
                     setPhotoUrl(dataUrl);
                     const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                    const defaultName = autoFields?.name || `Business Card Lead (${todayStr})`;
-                    if (!leadName.trim()) setLeadName(defaultName);
+                    if (autoFields?.name) {
+                      setLeadName(autoFields.name);
+                    } else if (!leadName.trim()) {
+                      setLeadName(`Business Card Lead (${todayStr})`);
+                    }
                     if (autoFields) {
-                      if (autoFields.phone && !phone) {
+                      if (autoFields.phone) {
                         setPhone(autoFields.phone);
                         if (!whatsApp) setWhatsApp(autoFields.phone);
                       }
-                      if (autoFields.email && !email) setEmail(autoFields.email);
-                      if (autoFields.company && !company) setCompany(autoFields.company);
+                      if (autoFields.email) setEmail(autoFields.email);
+                      if (autoFields.company) setCompany(autoFields.company);
+                      if (autoFields.notes && !notes) setNotes(autoFields.notes);
                     }
                   }}
                   onRemovePhoto={() => setPhotoUrl("")}
@@ -883,8 +915,16 @@ export default function LeadsPage() {
           <div className="space-y-4 pt-2">
             <LeadPhotoCapture
               currentPhotoUrl={newAttachedPhotoUrl || attachModalLead?.photoUrl}
-              onPhotoCaptured={(url) => setNewAttachedPhotoUrl(url)}
-              onRemovePhoto={() => setNewAttachedPhotoUrl("")}
+              onPhotoCaptured={(url, autoFields) => {
+                setNewAttachedPhotoUrl(url);
+                if (autoFields) {
+                  setPendingAttachFields(autoFields);
+                }
+              }}
+              onRemovePhoto={() => {
+                setNewAttachedPhotoUrl("");
+                setPendingAttachFields(null);
+              }}
             />
 
             <DialogFooter className="pt-2">

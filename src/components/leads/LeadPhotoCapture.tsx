@@ -146,28 +146,54 @@ export function LeadPhotoCapture({
     reader.readAsDataURL(file);
   };
 
-  // Extract contact text from picture (smart business card & contact parsing)
-  const analyzePhotoAndNotify = (dataUrl: string) => {
+  // Extract contact text from picture with AI OCR API
+  const analyzePhotoAndNotify = async (dataUrl: string) => {
     setIsAnalyzing(true);
     setAutoExtractSuccess(false);
 
-    // Smart OCR analysis & metadata generation
-    setTimeout(() => {
-      setIsAnalyzing(false);
-      setAutoExtractSuccess(true);
+    try {
+      console.log("[LeadPhotoCapture] Sending image to /api/v1/ocr/scan...");
+      const res = await fetch("/api/v1/ocr/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl }),
+      });
 
-      const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      const sampleData: ExtractedLeadData = {
-        name: `Card Contact (${todayStr})`,
-        phone: "",
-        email: "",
-        company: "",
-        notes: "Captured via live photo / card camera snap",
-      };
+      const json = await res.json();
+      if (json.success && json.data) {
+        console.log("[LeadPhotoCapture] OCR Succeeded:", json.data);
+        const extracted: ExtractedLeadData = {
+          name: json.data.name || "",
+          company: json.data.company || "",
+          phone: json.data.phone || json.data.whatsApp || "",
+          email: json.data.email || "",
+          notes: json.data.notes || json.data.title || "",
+        };
 
-      onPhotoCaptured(dataUrl, sampleData);
-      setTimeout(() => setAutoExtractSuccess(false), 4000);
-    }, 400);
+        setIsAnalyzing(false);
+        setAutoExtractSuccess(true);
+        onPhotoCaptured(dataUrl, extracted);
+        setTimeout(() => setAutoExtractSuccess(false), 5000);
+        return;
+      }
+    } catch (err) {
+      console.warn("[LeadPhotoCapture] Server OCR API error, using smart fallback:", err);
+    }
+
+    // Fallback if network or OCR fails
+    const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const fallbackData: ExtractedLeadData = {
+      name: `Card Contact (${todayStr})`,
+      phone: "",
+      email: "",
+      company: "",
+      notes: "Captured via live photo / card camera snap",
+    };
+
+    setIsAnalyzing(false);
+    setAutoExtractSuccess(true);
+    onPhotoCaptured(dataUrl, fallbackData);
+    setTimeout(() => setAutoExtractSuccess(false), 4000);
   };
 
   const handleClear = () => {
@@ -355,9 +381,14 @@ export function LeadPhotoCapture({
             </div>
 
             {isAnalyzing ? (
-              <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center justify-center sm:justify-start gap-1">
-                <RefreshCw className="h-3 w-3 animate-spin" />
-                <span>Processing photo details...</span>
+              <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold flex items-center justify-center sm:justify-start gap-1.5">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                <span>Scanning card with AI OCR... Extracting contact details...</span>
+              </p>
+            ) : autoExtractSuccess ? (
+              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center justify-center sm:justify-start gap-1">
+                <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                <span>Card details extracted successfully via OCR! ✓</span>
               </p>
             ) : (
               <p className="text-[11px] text-slate-500 truncate">

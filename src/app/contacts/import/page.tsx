@@ -76,7 +76,32 @@ function BulkImportContent() {
 
   // Direct 1-Click Lead Creation from Snapped Photo
   const [isCreatingDirectLead, setIsCreatingDirectLead] = useState(false);
+  const [isReScanning, setIsReScanning] = useState(false);
   const [createdLeadResult, setCreatedLeadResult] = useState<{ id: string; name: string } | null>(null);
+
+  const reScanCurrentPhoto = async () => {
+    if (!ocrPhotoUrl) return;
+    setIsReScanning(true);
+    try {
+      const res = await fetch("/api/v1/ocr/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: ocrPhotoUrl }),
+      });
+      const json = await res.json();
+      if (json.success && json.data) {
+        if (json.data.name) setOcrName(json.data.name);
+        if (json.data.company) setOcrCompany(json.data.company);
+        if (json.data.phone || json.data.whatsApp) setOcrPhone(json.data.phone || json.data.whatsApp);
+        if (json.data.email) setOcrEmail(json.data.email);
+        if (json.data.notes) setOcrNotes(json.data.notes);
+      }
+    } catch (err) {
+      console.warn("Re-scan error:", err);
+    } finally {
+      setIsReScanning(false);
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -397,11 +422,15 @@ function BulkImportContent() {
                     onPhotoCaptured={(dataUrl, autoFields) => {
                       setOcrPhotoUrl(dataUrl);
                       const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                      const defaultName = autoFields?.name || `Business Card Lead (${todayStr})`;
-                      if (!ocrName.trim()) setOcrName(defaultName);
-                      if (autoFields?.company && !ocrCompany) setOcrCompany(autoFields.company);
-                      if (autoFields?.phone && !ocrPhone) setOcrPhone(autoFields.phone);
-                      if (autoFields?.email && !ocrEmail) setOcrEmail(autoFields.email);
+                      if (autoFields?.name) {
+                        setOcrName(autoFields.name);
+                      } else if (!ocrName.trim()) {
+                        setOcrName(`Business Card Lead (${todayStr})`);
+                      }
+                      if (autoFields?.company) setOcrCompany(autoFields.company);
+                      if (autoFields?.phone) setOcrPhone(autoFields.phone);
+                      if (autoFields?.email) setOcrEmail(autoFields.email);
+                      if (autoFields?.notes) setOcrNotes(autoFields.notes);
                     }}
                     onRemovePhoto={() => {
                       setOcrPhotoUrl("");
@@ -413,13 +442,28 @@ function BulkImportContent() {
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                         <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
-                        <span>Lead Details (Ready to Save):</span>
+                        <span>Lead Details (Auto-Extracted from Photo):</span>
                       </h4>
-                      {ocrPhotoUrl && (
-                        <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                          Photo Attached ✓
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {ocrPhotoUrl && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={reScanCurrentPhoto}
+                            disabled={isReScanning}
+                            className="h-7 text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 font-bold gap-1 cursor-pointer"
+                          >
+                            <Sparkles className={`h-3 w-3 ${isReScanning ? "animate-spin" : ""}`} />
+                            <span>{isReScanning ? "Scanning..." : "Re-Scan Photo OCR"}</span>
+                          </Button>
+                        )}
+                        {ocrPhotoUrl && (
+                          <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                            Photo Attached ✓
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">

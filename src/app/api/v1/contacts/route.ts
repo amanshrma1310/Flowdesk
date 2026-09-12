@@ -70,3 +70,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
+
+export async function PUT(req: NextRequest) {
+  return POST(req);
+}
