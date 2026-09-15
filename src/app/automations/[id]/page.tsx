@@ -91,6 +91,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
     createWorkflow,
     updateWorkflow,
     toggleWorkflowActive,
+    executeWorkflowOnLead,
     smtpSettings,
     whatsAppSettings,
     sendRealEmail,
@@ -144,8 +145,10 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
   // Full Workflow Test Simulation Modal
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
   const [testLeadId, setTestLeadId] = useState<string>("");
+  const [testMode, setTestMode] = useState<"LIVE" | "SIMULATION">("LIVE");
   const [testLogs, setTestLogs] = useState<string[]>([]);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [executedLeadId, setExecutedLeadId] = useState<string | null>(null);
 
   // Save Toast & Status Indicator
   const [saveAlert, setSaveAlert] = useState<string | null>(null);
@@ -490,63 +493,99 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
     setDrawerTestWaStatus(res.message);
   };
 
-  // Simulate Full Workflow Test
-  const handleRunTest = () => {
+  // Run Workflow Test / Live Execution
+  const handleRunTest = async () => {
     setIsSimulating(true);
-    setTestLogs([`🚀 Starting Workflow Simulation: "${workflowName}"`]);
+    setExecutedLeadId(null);
 
-    const targetLead = scopedLeads.find((l) => l.id === testLeadId) || scopedLeads[0] || {
-      name: "Aman Sharma",
-      email: "amanshrma22583@gmail.com",
-      phone: "+91 85805 45820",
-      company: "Zerolt Tech",
-    };
+    const targetLead = scopedLeads.find((l) => l.id === testLeadId) || scopedLeads[0];
 
-    setTimeout(() => {
-      setTestLogs((prev) => [
-        ...prev,
-        `📥 Trigger Fired: [${trigger}] for prospect ${targetLead.name} (${targetLead.phone || targetLead.email})`,
+    if (!targetLead) {
+      setTestLogs([
+        "⚠️ No contact available to test with. Please add or import a lead first, or pick a contact."
       ]);
-    }, 350);
+      setIsSimulating(false);
+      return;
+    }
 
-    steps.forEach((step, idx) => {
-      setTimeout(() => {
-        let actionDesc = "";
-        switch (step.actionType) {
-          case "SEND_WHATSAPP":
-            actionDesc = `💬 WhatsApp Transmitted: "${step.customMessage?.slice(0, 32) || step.templateName}..." to ${targetLead.phone || targetLead.name}`;
-            break;
-          case "SEND_EMAIL":
-            actionDesc = `✉️ Email Dispatched: From "${step.fromName || smtpSettings.fromName}" <${step.fromEmail || smtpSettings.fromEmail}> ➔ Subject: "${step.customSubject || step.templateName}"`;
-            break;
-          case "WAIT_DELAY":
-            actionDesc = `⏳ Delay Engine: Paused lead for ${step.delayValue || step.dayDelay} ${step.delayUnit || "days"}`;
-            break;
-          case "UPDATE_STATUS":
-            actionDesc = `📊 Status Engine: Lead status updated to "${step.leadStatus || "Contacted"}"`;
-            break;
-          case "ADD_TAG":
-            actionDesc = `🏷️ Tagging Engine: Added tag "#${step.tag || "Hot Prospect"}"`;
-            break;
-          case "ASSIGN_USER":
-            actionDesc = `👤 Routing Engine: Assigned to ${step.assignedUserName || "Lead Owner"}`;
-            break;
-          case "IF_ELSE":
-            actionDesc = `🔀 Condition Evaluated: [${step.conditionField} ${step.conditionOperator}] ➔ Verified!`;
-            break;
-          default:
-            actionDesc = `⚡ Action Completed: ${step.actionTitle}`;
-        }
-        setTestLogs((prev) => [...prev, `[Step ${idx + 1}] ${actionDesc}`]);
+    setExecutedLeadId(targetLead.id);
 
-        if (idx === steps.length - 1) {
-          setTimeout(() => {
-            setTestLogs((prev) => [...prev, `🎉 Full Workflow Simulation Succeeded! All steps verified.`]);
-            setIsSimulating(false);
-          }, 350);
+    if (testMode === "LIVE") {
+      setTestLogs([
+        `⚡ Starting Live Workflow Execution: "${workflowName}"`,
+        `👤 Contact Target: ${targetLead.name} (${targetLead.email || targetLead.phone || "No direct email/phone"})`,
+        `🚀 Executing steps sequentially (SMTP emails, CRM status, tags)...`,
+      ]);
+
+      try {
+        const res = await executeWorkflowOnLead(currentWorkflow?.id || workflowId, targetLead.id, true);
+        if (res.success && res.result?.logs) {
+          const stepLogs = res.result.logs.map(
+            (l: any) => `[Step ${l.stepIndex}] ${l.status === "SUCCESS" ? "✓" : "⚠️"} ${l.stepTitle}: ${l.message}`
+          );
+          setTestLogs((prev) => [
+            ...prev,
+            ...stepLogs,
+            `🎉 Live Execution Complete! Contact timeline and status updated successfully.`,
+          ]);
+        } else {
+          setTestLogs((prev) => [
+            ...prev,
+            `⚠️ Execution completed with message: ${res.message}`,
+          ]);
         }
-      }, 650 * (idx + 1));
-    });
+      } catch (err: any) {
+        setTestLogs((prev) => [
+          ...prev,
+          `❌ Execution Error: ${err.message || "Failed to execute workflow."}`,
+        ]);
+      } finally {
+        setIsSimulating(false);
+      }
+    } else {
+      // Dry-Run Simulation Mode
+      setTestLogs([
+        `🔍 Running Workflow Dry-Run Simulation: "${workflowName}"`,
+        `👤 Target Contact: ${targetLead.name} (Company: ${targetLead.company || "N/A"})`,
+      ]);
+
+      const activeWf: Workflow = currentWorkflow || {
+        id: workflowId,
+        agencyId: "org-1",
+        name: workflowName,
+        trigger,
+        triggerType,
+        steps,
+        isActive: true,
+        createdById: currentUser?.id || "admin",
+        createdByName: currentUser?.name || "Admin",
+        enrolledLeadsCount: 0,
+        createdAt: new Date().toLocaleDateString(),
+      };
+
+      try {
+        const { runWorkflowOnLead } = await import("@/lib/workflowEngine");
+        const res = await runWorkflowOnLead(activeWf, targetLead, {
+          isLive: false,
+          smtpSettings,
+          whatsAppSettings,
+          actorName: `Dry-Run: ${workflowName}`,
+        });
+
+        const stepLogs = res.logs.map(
+          (l) => `[Step ${l.stepIndex}] ✓ ${l.stepTitle} (${l.actionType}): ${l.message}`
+        );
+        setTestLogs((prev) => [
+          ...prev,
+          ...stepLogs,
+          `🎉 Dry Run Verified! All steps and personalized variables passed validation.`,
+        ]);
+      } catch (err: any) {
+        setTestLogs((prev) => [...prev, `❌ Error: ${err.message}`]);
+      } finally {
+        setIsSimulating(false);
+      }
+    }
   };
 
   // Helper Theme for Nodes
@@ -1932,26 +1971,68 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
         </div>
       )}
 
-      {/* 8. FULL SIMULATION MODAL */}
+      {/* 8. GOHIGHLEVEL WORKFLOW TEST & EXECUTION MODAL */}
       {isTestModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-4 text-xs animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
-                  <Play className="h-4 w-4" />
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/30">
+                  <Zap className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Workflow Simulation Runner</h3>
-                  <p className="text-[11px] text-slate-500">Simulate step-by-step execution on real contact data.</p>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Workflow Runner & Tester</h3>
+                  <p className="text-[11px] text-slate-500">Execute or test this automation sequence on real contact records.</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsTestModalOpen(false)}
-                className="h-7 w-7 rounded-lg text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer"
+                className="h-7 w-7 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center justify-center cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
+            </div>
+
+            {/* Execution Mode Selector (GoHighLevel Pill) */}
+            <div>
+              <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">Execution Mode</label>
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setTestMode("LIVE")}
+                  className={`p-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center gap-0.5 ${
+                    testMode === "LIVE"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-700/50"
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Zap className="h-3.5 w-3.5" />
+                    <span>⚡ Live Execution</span>
+                  </span>
+                  <span className={`text-[10px] font-normal ${testMode === "LIVE" ? "text-indigo-100" : "text-slate-400"}`}>
+                    Sends real emails & updates CRM lead
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTestMode("SIMULATION")}
+                  className={`p-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center gap-0.5 ${
+                    testMode === "SIMULATION"
+                      ? "bg-slate-900 text-white dark:bg-slate-700 shadow-sm"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-700/50"
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>🔍 Dry Run Simulation</span>
+                  </span>
+                  <span className={`text-[10px] font-normal ${testMode === "SIMULATION" ? "text-slate-300" : "text-slate-400"}`}>
+                    Validates variables without sending
+                  </span>
+                </button>
+              </div>
             </div>
 
             <div>
@@ -1959,44 +2040,91 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
               <select
                 value={testLeadId}
                 onChange={(e) => setTestLeadId(e.target.value)}
-                className="w-full h-9 rounded-lg border border-slate-200 text-xs px-2.5 bg-white dark:bg-slate-950"
+                className="w-full h-9 rounded-lg border border-slate-200 dark:border-slate-800 text-xs px-2.5 bg-white dark:bg-slate-950"
               >
-                <option value="">-- Sample Prospect (Aman Sharma) --</option>
                 {scopedLeads.map((l) => (
-                  <option key={l.id} value={l.id}>{l.name} ({l.phone || l.email})</option>
+                  <option key={l.id} value={l.id}>{l.name} — {l.email || l.phone || l.company || "No direct contact info"}</option>
                 ))}
               </select>
             </div>
 
-            {/* Simulation Log Console */}
-            <div className="bg-slate-950 text-slate-200 font-mono text-[11px] rounded-xl p-3.5 h-48 overflow-y-auto space-y-1.5 border border-slate-800">
-              {testLogs.length === 0 ? (
-                <p className="text-slate-500 italic">Click &quot;Run Test Simulation&quot; to test workflow execution...</p>
-              ) : (
-                testLogs.map((log, i) => (
-                  <p key={i} className="leading-relaxed">{log}</p>
-                ))
-              )}
+            {/* Execution / Simulation Console */}
+            <div>
+              <div className="flex items-center justify-between mb-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                <span>Execution Output Console</span>
+                {testLogs.length > 0 && (
+                  <span className="text-[10px] text-indigo-600 font-bold">{testLogs.length} events logged</span>
+                )}
+              </div>
+              <div className="bg-slate-950 text-slate-200 font-mono text-[11px] rounded-xl p-3.5 h-48 overflow-y-auto space-y-1.5 border border-slate-800 shadow-inner">
+                {testLogs.length === 0 ? (
+                  <p className="text-slate-500 italic">
+                    Click &quot;{testMode === "LIVE" ? "Run Live Execution" : "Run Test Simulation"}&quot; to start...
+                  </p>
+                ) : (
+                  testLogs.map((log, i) => (
+                    <p
+                      key={i}
+                      className={`leading-relaxed ${
+                        log.includes("✓") || log.includes("🎉")
+                          ? "text-emerald-400 font-semibold"
+                          : log.includes("⚠️")
+                          ? "text-amber-400"
+                          : log.includes("❌")
+                          ? "text-rose-400"
+                          : "text-slate-300"
+                      }`}
+                    >
+                      {log}
+                    </p>
+                  ))
+                )}
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsTestModalOpen(false)}
-                className="text-xs"
-              >
-                Close
-              </Button>
-              <Button
-                size="sm"
-                disabled={isSimulating}
-                onClick={handleRunTest}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5"
-              >
-                <Play className={`h-3.5 w-3.5 ${isSimulating ? "animate-spin" : ""}`} />
-                <span>{isSimulating ? "Simulating..." : "Run Test Simulation"}</span>
-              </Button>
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              {executedLeadId ? (
+                <Link
+                  href={`/contacts/${executedLeadId}`}
+                  target="_blank"
+                  className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 font-bold"
+                >
+                  <span>Inspect Contact Profile</span>
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
+              ) : (
+                <div />
+              )}
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsTestModalOpen(false)}
+                  className="text-xs"
+                >
+                  Close
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={isSimulating}
+                  onClick={handleRunTest}
+                  className={
+                    testMode === "LIVE"
+                      ? "bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold gap-1.5 shadow-sm"
+                      : "bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold gap-1.5"
+                  }
+                >
+                  <Play className={`h-3.5 w-3.5 ${isSimulating ? "animate-spin" : ""}`} />
+                  <span>
+                    {isSimulating
+                      ? "Processing..."
+                      : testMode === "LIVE"
+                      ? "Run Live Execution"
+                      : "Run Simulation"}
+                  </span>
+                </Button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findFormAcrossAgencies, saveServerAgency, addLeadToServer, getAllAgencies } from "@/lib/serverStore";
+import { runWorkflowOnLead } from "@/lib/workflowEngine";
+import { Lead, LeadStatus } from "@/lib/types";
 
 function getPublicBaseUrl(req: NextRequest): string {
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
@@ -98,7 +100,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const newLeadId = `lead-${Date.now()}`;
-    const newLead = {
+    let newLead: Lead = {
       id: newLeadId,
       agencyId: targetAgency?.id || "org-1",
       name: leadName,
@@ -107,7 +109,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       phone: leadPhone,
       whatsApp: leadPhone,
       source: `Web Form: ${targetForm?.title || id}`,
-      status: "New",
+      status: "New" as LeadStatus,
       notes: leadNotes ? `${leadNotes}${customSummary ? `\n\nCustom Fields: ${customSummary}` : ""}` : customSummary,
       customData: customFields,
       tags: ["Web Form", targetForm?.title || "Inbound Lead"],
@@ -133,15 +135,47 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       ],
     };
 
-    if (targetForm?.workflowId) {
+    // Check if targetForm is associated with a workflow or if there is an active form workflow
+    let activeWorkflow: any = null;
+    let targetAgencySmtp: any = null;
+
+    const allAgencies = getAllAgencies();
+    for (const ag of allAgencies) {
+      if (ag.forms?.some((f: any) => f.id === id)) {
+        targetAgencySmtp = ag.smtpSettings;
+      }
+      if (ag.workflows && Array.isArray(ag.workflows)) {
+        const wf = ag.workflows.find(
+          (w: any) =>
+            w.id === targetForm?.workflowId ||
+            (w.isActive && w.triggerType === "FORM_SUBMITTED" && (!w.triggerConfig?.formId || w.triggerConfig.formId === id))
+        );
+        if (wf) {
+          activeWorkflow = wf;
+        }
+      }
+    }
+
+    if (activeWorkflow) {
       newLead.activities.unshift({
         id: `act-wf-${Date.now()}`,
         timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-        action: `Enrolled in Workflow: ${targetForm.workflowName}`,
+        action: `Enrolled in Workflow: ${activeWorkflow.name}`,
         channel: "Workflow",
         details: `Triggered automatically upon web form submission`,
         actor: "Automation Engine",
       });
+
+      try {
+        const execResult = await runWorkflowOnLead(activeWorkflow, newLead, {
+          isLive: true,
+          smtpSettings: targetAgencySmtp,
+          actorName: `Workflow: ${activeWorkflow.name}`,
+        });
+        newLead = execResult.updatedLead;
+      } catch (wfErr) {
+        console.warn("Workflow execution error:", wfErr);
+      }
     }
 
     // Persist into server storage (file-backed disk store)

@@ -21,6 +21,8 @@ import {
   WhatsAppAPISettings,
   LeadActivity,
 } from "./types";
+import { runWorkflowOnLead } from "./workflowEngine";
+import { WORKFLOW_RECIPES } from "./workflowTemplates";
 
 interface FlowDeskStoreContextType {
   organization: Organization | null;
@@ -80,6 +82,7 @@ interface FlowDeskStoreContextType {
   updateWorkflow: (id: string, data: Partial<Workflow>) => void;
   deleteWorkflow: (id: string) => void;
   toggleWorkflowActive: (workflowId: string) => void;
+  executeWorkflowOnLead: (workflowId: string, leadId: string, isLive?: boolean) => Promise<{ success: boolean; message: string; result?: any }>;
 
   // Lead Forms (Web Embed & Lead Capture)
   createForm: (data: Omit<LeadForm, "id" | "agencyId" | "createdAt" | "createdById" | "createdByName" | "submissionCount">) => LeadForm;
@@ -170,7 +173,50 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       if (savedFolders) setFolders(JSON.parse(savedFolders));
       if (savedTemplates) setTemplates(JSON.parse(savedTemplates));
       if (savedCampaigns) setCampaigns(JSON.parse(savedCampaigns));
-      if (savedWorkflows) setWorkflows(JSON.parse(savedWorkflows));
+      if (savedWorkflows) {
+        try {
+          const parsed = JSON.parse(savedWorkflows);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setWorkflows(parsed);
+          } else {
+            const seeded = WORKFLOW_RECIPES.map((r, i) => ({
+              id: `wf-${r.id}`,
+              agencyId: "org-1",
+              name: r.name.replace(/^[^\w]+/, "").trim(),
+              description: r.description,
+              trigger: r.trigger,
+              triggerType: r.triggerType,
+              steps: r.steps,
+              isActive: true,
+              createdById: "admin",
+              createdByName: "Admin",
+              enrolledLeadsCount: 0,
+              createdAt: new Date().toLocaleDateString(),
+            }));
+            setWorkflows(seeded);
+            localStorage.setItem("fd_marketing_workflows", JSON.stringify(seeded));
+          }
+        } catch {
+          setWorkflows([]);
+        }
+      } else {
+        const seeded = WORKFLOW_RECIPES.map((r, i) => ({
+          id: `wf-${r.id}`,
+          agencyId: "org-1",
+          name: r.name.replace(/^[^\w]+/, "").trim(),
+          description: r.description,
+          trigger: r.trigger,
+          triggerType: r.triggerType,
+          steps: r.steps,
+          isActive: true,
+          createdById: "admin",
+          createdByName: "Admin",
+          enrolledLeadsCount: 0,
+          createdAt: new Date().toLocaleDateString(),
+        }));
+        setWorkflows(seeded);
+        localStorage.setItem("fd_marketing_workflows", JSON.stringify(seeded));
+      }
       if (savedForms) setForms(JSON.parse(savedForms));
       if (savedResponses) setResponses(JSON.parse(savedResponses));
       if (savedEmails) setSentEmailLogs(JSON.parse(savedEmails));
@@ -1109,7 +1155,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
     });
   };
 
-  const addLeadToWorkflow = (leadId: string, workflowId: string): { success: boolean; message: string } => {
+  const addLeadToWorkflow = (leadId: string, workflowId: string, isLive: boolean = true): { success: boolean; message: string } => {
     const targetLead = leads.find((l) => l.id === leadId);
     const targetWf = workflows.find((w) => w.id === workflowId);
 
@@ -1117,28 +1163,133 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
       return { success: false, message: "Lead or workflow not found." };
     }
 
-    setLeads((prev) =>
-      prev.map((l) => {
-        if (l.id === leadId) {
-          const act: LeadActivity = {
-            id: `act-${Date.now()}`,
-            timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-            action: `Added to Workflow: ${targetWf.name}`,
-            channel: "Workflow",
-            details: `Enrolled by ${currentUser?.name || "System"}`,
-            actor: currentUser?.name || "System",
-          };
-          return { ...l, activeWorkflowId: workflowId, activeWorkflowName: targetWf.name, activities: [act, ...(l.activities || [])] };
+    const initialAct: LeadActivity = {
+      id: `act-${Date.now()}`,
+      timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      action: `Enrolled in Workflow: ${targetWf.name}`,
+      channel: "Workflow",
+      details: `Triggered by ${currentUser?.name || "System"}`,
+      actor: currentUser?.name || "System",
+    };
+
+    const enrolledLead: Lead = {
+      ...targetLead,
+      activeWorkflowId: workflowId,
+      activeWorkflowName: targetWf.name,
+      activities: [initialAct, ...(targetLead.activities || [])],
+    };
+
+    const updatedLeadsList = leads.map((l) => (l.id === leadId ? enrolledLead : l));
+    const updatedWorkflowsList = workflows.map((w) =>
+      w.id === workflowId ? { ...w, enrolledLeadsCount: (w.enrolledLeadsCount || 0) + 1 } : w
+    );
+
+    setLeads(updatedLeadsList);
+    setWorkflows(updatedWorkflowsList);
+    persist(
+      organization,
+      currentUser,
+      users,
+      updatedLeadsList,
+      folders,
+      templates,
+      campaigns,
+      updatedWorkflowsList,
+      forms,
+      responses,
+      sentEmailLogs,
+      smtpSettings,
+      whatsAppSettings
+    );
+
+    // Asynchronously execute workflow steps on lead
+    runWorkflowOnLead(targetWf, enrolledLead, {
+      isLive,
+      smtpSettings,
+      whatsAppSettings,
+      actorName: `Workflow: ${targetWf.name}`,
+    })
+      .then((res) => {
+        if (res.updatedLead) {
+          setLeads((prev) => {
+            const next = prev.map((l) => (l.id === leadId ? res.updatedLead : l));
+            persist(
+              organization,
+              currentUser,
+              users,
+              next,
+              folders,
+              templates,
+              campaigns,
+              updatedWorkflowsList,
+              forms,
+              responses,
+              sentEmailLogs,
+              smtpSettings,
+              whatsAppSettings
+            );
+            return next;
+          });
         }
-        return l;
       })
-    );
+      .catch((err) => console.warn("Workflow execution failed:", err));
 
-    setWorkflows((prev) =>
-      prev.map((w) => (w.id === workflowId ? { ...w, enrolledLeadsCount: w.enrolledLeadsCount + 1 } : w))
-    );
+    return { success: true, message: `Enrolled ${targetLead.name} into '${targetWf.name}' and started execution!` };
+  };
 
-    return { success: true, message: `Enrolled ${targetLead.name} into '${targetWf.name}'!` };
+  const executeWorkflowOnLead = async (
+    workflowId: string,
+    leadId: string,
+    isLive: boolean = true
+  ): Promise<{ success: boolean; message: string; result?: any }> => {
+    const targetLead = leads.find((l) => l.id === leadId);
+    const targetWf = workflows.find((w) => w.id === workflowId);
+
+    if (!targetLead || !targetWf) {
+      return { success: false, message: "Lead or workflow not found." };
+    }
+
+    try {
+      const res = await runWorkflowOnLead(targetWf, targetLead, {
+        isLive,
+        smtpSettings,
+        whatsAppSettings,
+        actorName: `Workflow: ${targetWf.name}`,
+      });
+
+      if (res.updatedLead) {
+        setLeads((prev) => {
+          const next = prev.map((l) => (l.id === leadId ? res.updatedLead : l));
+          persist(
+            organization,
+            currentUser,
+            users,
+            next,
+            folders,
+            templates,
+            campaigns,
+            workflows,
+            forms,
+            responses,
+            sentEmailLogs,
+            smtpSettings,
+            whatsAppSettings
+          );
+          return next;
+        });
+      }
+
+      return {
+        success: true,
+        message: `Workflow executed ${res.stepsExecuted} steps successfully!`,
+        result: res,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.message || "Workflow execution encountered an error.",
+      };
+    }
   };
 
   const createFolder = (name: string): LeadFolder => {
@@ -1601,6 +1752,7 @@ export function FlowDeskStoreProvider({ children }: { children: React.ReactNode 
         updateWorkflow,
         deleteWorkflow,
         toggleWorkflowActive,
+        executeWorkflowOnLead,
         createForm,
         updateForm,
         deleteForm,
