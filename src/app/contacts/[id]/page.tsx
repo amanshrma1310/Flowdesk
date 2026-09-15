@@ -26,6 +26,8 @@ import {
   AlertCircle,
   Edit3,
   Trash2,
+  Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -66,14 +68,21 @@ export default function LeadProfilePage() {
     addLeadToWorkflow,
     recordResponse,
     currentUser,
+    sendRealEmail,
+    smtpSettings,
   } = useFlowDesk();
 
   const lead = leads.find((l) => l.id === leadId) || leads[0];
 
   // Quick Action Drawer
   const [activeAction, setActiveAction] = useState<"NONE" | "EMAIL" | "WHATSAPP" | "WORKFLOW" | "RESPONSE">("NONE");
+  const [emailTo, setEmailTo] = useState(lead?.email || "");
   const [emailSubject, setEmailSubject] = useState(`Next Steps for ${lead?.company || "Your Business"}`);
   const [emailBody, setEmailBody] = useState(`Hello ${lead?.name?.split(" ")[0] || "there"},\n\nWe wanted to share our solution with you.`);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
+
   const [whatsAppMsg, setWhatsAppMsg] = useState(`Hi ${lead?.name?.split(" ")[0] || "there"} 👋 We have a special growth solution for ${lead?.company || "you"}. Would you like to know more?\n\nReply:\n1 - Yes\n2 - No`);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState(workflows[0]?.id || "");
   const [incomingResponseMsg, setIncomingResponseMsg] = useState("Yes, I am interested! Please share more details.");
@@ -118,20 +127,55 @@ export default function LeadProfilePage() {
     );
   }
 
-  const handleSendEmail = () => {
-    if (!emailBody.trim()) return;
-    addLeadActivity(lead.id, {
-      action: `Email Sent: ${emailSubject}`,
-      channel: "Email",
-      details: emailBody.slice(0, 100) + "...",
-      actor: currentUser?.name || "System",
-    });
-    updateLeadStatus(lead.id, "Contacted");
-    setActiveAction("NONE");
+  const handleSendEmail = async () => {
+    if (!emailTo.trim()) {
+      setEmailError("Recipient email address is required.");
+      return;
+    }
+    if (!emailSubject.trim()) {
+      setEmailError("Subject line is required.");
+      return;
+    }
+    if (!emailBody.trim()) {
+      setEmailError("Email body cannot be empty.");
+      return;
+    }
+
+    setIsSendingEmail(true);
+    setEmailError(null);
+    try {
+      const res = await sendRealEmail({
+        to: emailTo.trim(),
+        subject: emailSubject.trim(),
+        text: emailBody.trim(),
+      });
+
+      if (res.success) {
+        addLeadActivity(lead.id, {
+          action: `Email Sent: ${emailSubject.trim()}`,
+          channel: "Email",
+          details: emailBody.slice(0, 120) + "...",
+          actor: currentUser?.name || "System",
+        });
+        updateLeadStatus(lead.id, "Contacted");
+        setEmailSuccess(`Email successfully delivered to ${emailTo.trim()}!`);
+        setTimeout(() => {
+          setEmailSuccess(null);
+          setActiveAction("NONE");
+        }, 1800);
+      } else {
+        setEmailError(res.error || res.message || "Failed to send email via SMTP server.");
+      }
+    } catch (err: any) {
+      setEmailError(err.message || "Network error sending email.");
+    } finally {
+      setIsSendingEmail(false);
+    }
   };
 
   const handleSendWhatsApp = () => {
     if (!whatsAppMsg.trim()) return;
+    const cleanPhone = (lead.whatsApp || lead.phone || "").replace(/[^0-9]/g, "");
     addLeadActivity(lead.id, {
       action: "WhatsApp Message Sent",
       channel: "WhatsApp",
@@ -139,6 +183,9 @@ export default function LeadProfilePage() {
       actor: currentUser?.name || "System",
     });
     updateLeadStatus(lead.id, "Contacted");
+    if (cleanPhone) {
+      window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(whatsAppMsg)}`, "_blank");
+    }
     setActiveAction("NONE");
   };
 
@@ -590,29 +637,91 @@ export default function LeadProfilePage() {
             <CardTitle className="text-sm font-bold flex items-center justify-between">
               <div className="flex items-center gap-2 text-sky-900 dark:text-sky-200">
                 <Mail className="h-4 w-4 text-sky-600" />
-                <span>Send One-off Email to {lead.email || lead.name}</span>
+                <span>Send One-off Email to {lead.name}</span>
               </div>
               <button onClick={() => setActiveAction("NONE")} className="text-slate-400 hover:text-slate-700">✕</button>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-1 space-y-3">
+            {emailSuccess && (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>{emailSuccess}</span>
+              </div>
+            )}
+
+            {emailError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-200 rounded-lg text-xs space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+                  <div>
+                    <p className="font-bold">Email Transmission Issue</p>
+                    <p className="text-[11px] mt-0.5 opacity-90">{emailError}</p>
+                  </div>
+                </div>
+                <div className="pt-1 flex items-center justify-between gap-2 border-t border-rose-200/60 dark:border-rose-800/60">
+                  <span className="text-[10px] text-rose-700 dark:text-rose-300">Quick 1-click fallback:</span>
+                  <a
+                    href={`mailto:${encodeURIComponent(emailTo)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[11px] font-semibold transition-colors"
+                  >
+                    <Mail className="h-3 w-3" />
+                    <span>Open in Gmail / Email App</span>
+                    <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+              </div>
+            )}
+
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Subject</label>
-              <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} className="bg-white text-xs" />
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Recipient Email *</label>
+              <Input
+                type="email"
+                value={emailTo}
+                onChange={(e) => setEmailTo(e.target.value)}
+                placeholder="lead@company.com"
+                disabled={isSendingEmail}
+                className="bg-white dark:bg-slate-950 text-xs h-8"
+              />
             </div>
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Email Message</label>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Subject *</label>
+              <Input
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                placeholder="Subject..."
+                disabled={isSendingEmail}
+                className="bg-white dark:bg-slate-950 text-xs h-8"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Email Message *</label>
               <textarea
                 value={emailBody}
                 onChange={(e) => setEmailBody(e.target.value)}
+                disabled={isSendingEmail}
                 rows={4}
                 className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-xs dark:bg-slate-950"
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => setActiveAction("NONE")}>Cancel</Button>
-              <Button size="sm" onClick={handleSendEmail} className="bg-sky-600 hover:bg-sky-700 text-white font-semibold">
-                Send Email
+              <Button size="sm" variant="outline" onClick={() => setActiveAction("NONE")} disabled={isSendingEmail}>Cancel</Button>
+              <Button
+                size="sm"
+                onClick={handleSendEmail}
+                disabled={isSendingEmail}
+                className="bg-sky-600 hover:bg-sky-700 text-white font-semibold gap-1.5"
+              >
+                {isSendingEmail ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Sending...</span>
+                  </>
+                ) : (
+                  <span>Send Email</span>
+                )}
               </Button>
             </div>
           </CardContent>

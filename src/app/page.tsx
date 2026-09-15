@@ -26,6 +26,8 @@ import {
   Check,
   Pause,
   Play,
+  Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -50,6 +52,8 @@ export default function DashboardPage() {
     addLeadActivity,
     updateCampaignStatus,
     addLead,
+    sendRealEmail,
+    smtpSettings,
   } = useFlowDesk();
 
   // Quick Action Modals from Dashboard
@@ -61,7 +65,11 @@ export default function DashboardPage() {
 
   const [quickOutreachLead, setQuickOutreachLead] = useState<any | null>(null);
   const [outreachChannel, setOutreachChannel] = useState<"WhatsApp" | "Email">("WhatsApp");
+  const [outreachRecipient, setOutreachRecipient] = useState("");
+  const [outreachSubject, setOutreachSubject] = useState("");
   const [outreachMessage, setOutreachMessage] = useState("");
+  const [isSendingOutreach, setIsSendingOutreach] = useState(false);
+  const [outreachError, setOutreachError] = useState<string | null>(null);
   const [outreachSuccess, setOutreachSuccess] = useState<string | null>(null);
 
   if (!currentUser || !organization) return null;
@@ -118,29 +126,87 @@ export default function DashboardPage() {
   const openOutreach = (lead: any, channel: "WhatsApp" | "Email") => {
     setQuickOutreachLead(lead);
     setOutreachChannel(channel);
+    setOutreachSuccess(null);
+    setOutreachError(null);
     if (channel === "WhatsApp") {
+      setOutreachRecipient(lead.whatsApp || lead.phone || "");
       setOutreachMessage(`Hi ${lead.name.split(" ")[0]} 👋 We have an exclusive solution for ${lead.company || "your business"}. Would you like to see a quick demo?\n\nReply:\n1 - Yes\n2 - No`);
     } else {
-      setOutreachMessage(`Hello ${lead.name.split(" ")[0]},\n\nWe wanted to introduce our marketing solutions for ${lead.company || "your team"}. Let me know if you are open to a quick chat.`);
+      setOutreachRecipient(lead.email || "");
+      setOutreachSubject(`Exclusive Solution for ${lead.company || lead.name}`);
+      setOutreachMessage(`Hello ${lead.name.split(" ")[0]},\n\nWe wanted to introduce our marketing solutions for ${lead.company || "your team"}. Let me know if you are open to a quick chat.\n\nBest regards,\n${currentUser.name}\n${organization.name}`);
     }
   };
 
-  const handleSendOutreach = () => {
+  const handleSendOutreach = async () => {
     if (!quickOutreachLead) return;
+    setOutreachError(null);
 
-    addLeadActivity(quickOutreachLead.id, {
-      action: `${outreachChannel} Message Sent from Dashboard`,
-      channel: outreachChannel,
-      details: outreachMessage.slice(0, 100) + "...",
-      actor: currentUser.name,
-    });
+    if (outreachChannel === "Email") {
+      if (!outreachRecipient.trim()) {
+        setOutreachError("Recipient email address is required.");
+        return;
+      }
+      if (!outreachSubject.trim()) {
+        setOutreachError("Email subject line is required.");
+        return;
+      }
+      if (!outreachMessage.trim()) {
+        setOutreachError("Email body cannot be empty.");
+        return;
+      }
 
-    updateLeadStatus(quickOutreachLead.id, "Contacted");
-    setOutreachSuccess(`Message sent to ${quickOutreachLead.name} via ${outreachChannel}!`);
-    setTimeout(() => {
-      setOutreachSuccess(null);
-      setQuickOutreachLead(null);
-    }, 1500);
+      setIsSendingOutreach(true);
+      try {
+        const result = await sendRealEmail({
+          to: outreachRecipient.trim(),
+          subject: outreachSubject.trim(),
+          text: outreachMessage.trim(),
+        });
+
+        if (result.success) {
+          addLeadActivity(quickOutreachLead.id, {
+            action: `Email Sent: ${outreachSubject.trim()}`,
+            channel: "Email",
+            details: outreachMessage.slice(0, 120) + (outreachMessage.length > 120 ? "..." : ""),
+            actor: currentUser.name,
+          });
+          updateLeadStatus(quickOutreachLead.id, "Contacted");
+          setOutreachSuccess(`Email delivered successfully to ${outreachRecipient.trim()}!`);
+          setTimeout(() => {
+            setOutreachSuccess(null);
+            setQuickOutreachLead(null);
+          }, 2000);
+        } else {
+          setOutreachError(result.error || result.message || "Failed to send email via SMTP server.");
+        }
+      } catch (err: any) {
+        setOutreachError(err.message || "Network error sending email.");
+      } finally {
+        setIsSendingOutreach(false);
+      }
+    } else {
+      // WhatsApp
+      const cleanPhone = outreachRecipient.replace(/[^0-9]/g, "");
+      if (!cleanPhone) {
+        setOutreachError("Recipient phone number is required.");
+        return;
+      }
+      addLeadActivity(quickOutreachLead.id, {
+        action: `WhatsApp Message Sent to ${cleanPhone}`,
+        channel: "WhatsApp",
+        details: outreachMessage.slice(0, 120) + (outreachMessage.length > 120 ? "..." : ""),
+        actor: currentUser.name,
+      });
+      updateLeadStatus(quickOutreachLead.id, "Contacted");
+      const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(outreachMessage)}`;
+      window.open(waUrl, "_blank");
+      setOutreachSuccess(`Opening WhatsApp for ${quickOutreachLead.name}...`);
+      setTimeout(() => {
+        setOutreachSuccess(null);
+        setQuickOutreachLead(null);
+      }, 1500);
+    }
   };
 
   return (
@@ -632,27 +698,101 @@ export default function DashboardPage() {
           </DialogHeader>
 
           {outreachSuccess ? (
-            <div className="p-4 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <div className="p-4 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded-xl text-xs font-bold flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
               <span>{outreachSuccess}</span>
             </div>
           ) : (
             <div className="space-y-3 pt-2 text-xs">
-              <textarea
-                rows={5}
-                value={outreachMessage}
-                onChange={(e) => setOutreachMessage(e.target.value)}
-                className="w-full p-2.5 rounded-lg border border-slate-200 font-mono text-xs focus:ring-2 focus:ring-indigo-500 bg-slate-50 dark:bg-slate-950"
-              />
+              {outreachError && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-200 rounded-xl space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Transmission Alert</p>
+                      <p className="text-[11px] mt-0.5 opacity-90">{outreachError}</p>
+                    </div>
+                  </div>
+                  {outreachChannel === "Email" && (
+                    <div className="pt-1 flex items-center justify-between gap-2 border-t border-rose-200/60 dark:border-rose-800/60">
+                      <span className="text-[10px] text-rose-700 dark:text-rose-300">Quick 1-click bypass:</span>
+                      <a
+                        href={`mailto:${encodeURIComponent(outreachRecipient)}?subject=${encodeURIComponent(outreachSubject)}&body=${encodeURIComponent(outreachMessage)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[11px] font-semibold transition-colors"
+                      >
+                        <Mail className="h-3 w-3" />
+                        <span>Open in Gmail / Email App</span>
+                        <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  {outreachChannel === "Email" ? "Recipient Email Address *" : "WhatsApp Phone Number *"}
+                </label>
+                <Input
+                  type={outreachChannel === "Email" ? "email" : "tel"}
+                  value={outreachRecipient}
+                  onChange={(e) => setOutreachRecipient(e.target.value)}
+                  placeholder={outreachChannel === "Email" ? "lead@company.com" : "+91 98765 43210"}
+                  className="text-xs h-8"
+                  disabled={isSendingOutreach}
+                />
+              </div>
+
+              {outreachChannel === "Email" && (
+                <div>
+                  <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                    Subject Line *
+                  </label>
+                  <Input
+                    type="text"
+                    value={outreachSubject}
+                    onChange={(e) => setOutreachSubject(e.target.value)}
+                    placeholder="Subject..."
+                    className="text-xs h-8"
+                    disabled={isSendingOutreach}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Message Content *
+                </label>
+                <textarea
+                  rows={5}
+                  value={outreachMessage}
+                  onChange={(e) => setOutreachMessage(e.target.value)}
+                  disabled={isSendingOutreach}
+                  className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 font-mono text-xs focus:ring-2 focus:ring-indigo-500 bg-slate-50 dark:bg-slate-950"
+                />
+              </div>
 
               <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" onClick={() => setQuickOutreachLead(null)}>Cancel</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setQuickOutreachLead(null)} disabled={isSendingOutreach}>
+                  Cancel
+                </Button>
                 <Button
                   type="button"
+                  size="sm"
                   onClick={handleSendOutreach}
-                  className={outreachChannel === "WhatsApp" ? "bg-emerald-600 hover:bg-emerald-700 text-white font-bold" : "bg-sky-600 hover:bg-sky-700 text-white font-bold"}
+                  disabled={isSendingOutreach}
+                  className={outreachChannel === "WhatsApp" ? "bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5" : "bg-sky-600 hover:bg-sky-700 text-white font-bold gap-1.5"}
                 >
-                  Send {outreachChannel} Now
+                  {isSendingOutreach ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Sending...</span>
+                    </>
+                  ) : (
+                    <span>{outreachChannel === "WhatsApp" ? "Open WhatsApp & Send" : "Send Email Now"}</span>
+                  )}
                 </Button>
               </DialogFooter>
             </div>

@@ -205,17 +205,77 @@ export default function FormsPage() {
     const fieldsHtml = form.fields
       .map((f) => {
         if (f.type === "textarea") {
-          return `  <label>${f.label}${f.required ? " *" : ""}</label>\n  <textarea name="${f.name}" ${f.required ? "required" : ""} placeholder="${f.placeholder || ""}"></textarea>`;
+          return `  <div style="margin-bottom: 14px;">\n    <label style="display:block; font-size:13px; font-weight:600; margin-bottom:5px;">${f.label}${f.required ? " *" : ""}</label>\n    <textarea name="${f.name}" ${f.required ? "required" : ""} placeholder="${f.placeholder || ""}" style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; box-sizing:border-box; min-height:80px;"></textarea>\n  </div>`;
         }
         if (f.type === "select" && f.options) {
-          const optHtml = f.options.map((o) => `    <option value="${o}">${o}</option>`).join("\n");
-          return `  <label>${f.label}${f.required ? " *" : ""}</label>\n  <select name="${f.name}" ${f.required ? "required" : ""}>\n${optHtml}\n  </select>`;
+          const optHtml = f.options.map((o) => `      <option value="${o}">${o}</option>`).join("\n");
+          return `  <div style="margin-bottom: 14px;">\n    <label style="display:block; font-size:13px; font-weight:600; margin-bottom:5px;">${f.label}${f.required ? " *" : ""}</label>\n    <select name="${f.name}" ${f.required ? "required" : ""} style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; box-sizing:border-box;">\n${optHtml}\n    </select>\n  </div>`;
         }
-        return `  <label>${f.label}${f.required ? " *" : ""}</label>\n  <input type="${f.type}" name="${f.name}" ${f.required ? "required" : ""} placeholder="${f.placeholder || ""}" />`;
+        return `  <div style="margin-bottom: 14px;">\n    <label style="display:block; font-size:13px; font-weight:600; margin-bottom:5px;">${f.label}${f.required ? " *" : ""}</label>\n    <input type="${f.type}" name="${f.name}" ${f.required ? "required" : ""} placeholder="${f.placeholder || ""}" style="width:100%; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; box-sizing:border-box;" />\n  </div>`;
       })
-      .join("\n\n");
+      .join("\n");
 
-    return `<!-- FlowDesk AI Lead Capture Form -->\n<form action="${baseUrl}/api/v1/forms/${form.id}/submit" method="POST">\n${fieldsHtml}\n\n  <button type="submit">${form.submitButtonText || "Submit"}</button>\n</form>`;
+    const hiddenRedirect = form.redirectUrl ? `  <input type="hidden" name="redirectUrl" value="${form.redirectUrl}" />\n` : "";
+
+    return `<!-- FlowDesk Lead Capture Form -->
+<div id="flowdesk-form-container-${form.id}" style="max-width: 480px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b;">
+  <form id="flowdesk-form-${form.id}" action="${baseUrl}/api/v1/forms/${form.id}/submit" method="POST">
+${hiddenRedirect}${fieldsHtml}
+    <button type="submit" style="width:100%; padding:12px; background:#4f46e5; color:#ffffff; font-weight:600; font-size:14px; border:none; border-radius:8px; cursor:pointer; transition:background 0.2s;">
+      ${form.submitButtonText || "Submit Inquiry"}
+    </button>
+  </form>
+  <div id="flowdesk-success-${form.id}" style="display:none; padding:24px; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:12px; text-align:center; color:#065f46;">
+    <svg style="width:40px; height:40px; margin:0 auto 12px; display:block; stroke:#059669;" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 6 9 17l-5-5"/>
+    </svg>
+    <h3 style="margin:0 0 6px; font-size:18px; font-weight:700; color:#047857;">Thank You!</h3>
+    <p style="margin:0; font-size:14px; color:#065f46;">${form.successMessage || "We have received your message and will contact you shortly."}</p>
+  </div>
+</div>
+
+<script>
+(function() {
+  var form = document.getElementById("flowdesk-form-${form.id}");
+  var successBox = document.getElementById("flowdesk-success-${form.id}");
+  if (!form) return;
+
+  form.addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var btn = form.querySelector("button[type='submit']");
+    var origText = btn ? btn.innerText : "Submit";
+    if (btn) { btn.disabled = true; btn.innerText = "Submitting..."; }
+
+    try {
+      var formData = new FormData(form);
+      var payload = {};
+      formData.forEach(function(val, key) { payload[key] = val; });
+
+      var res = await fetch(form.action, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      var data = await res.json();
+      if (data.success) {
+        if (data.redirectUrl) {
+          window.location.href = data.redirectUrl;
+          return;
+        }
+        form.style.display = "none";
+        if (successBox) successBox.style.display = "block";
+      } else {
+        alert(data.error || "Submission failed. Please try again.");
+        if (btn) { btn.disabled = false; btn.innerText = origText; }
+      }
+    } catch (err) {
+      // Fallback: standard submission if fetch fails
+      form.submit();
+    }
+  });
+})();
+</script>`;
   };
 
   const copyToClipboard = (text: string) => {
