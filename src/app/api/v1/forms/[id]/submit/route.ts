@@ -31,7 +31,7 @@ function getPublicBaseUrl(req: NextRequest): string {
     return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   }
 
-  return "https://moccasin-viper-720799.hostingersite.com";
+  return "https://wheat-raccoon-340819.hostingersite.com";
 }
 
 const CORS_HEADERS = {

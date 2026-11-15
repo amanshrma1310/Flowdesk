@@ -1319,7 +1319,7 @@ export default function WorkflowBuilderPage({ params }: { params: Promise<{ id: 
                   >
                     <option value="SMTP_DEFAULT">Default Agency SMTP ({smtpSettings.fromEmail || "Not Configured"})</option>
                     <option value="LOGGED_IN_USER">Logged-in User Account ({currentUser?.name} &lt;{currentUser?.email}&gt;)</option>
-                    <option value="ASSIGNED_USER">Contact's Assigned Owner (Dynamic &#123;&#123;assigned_user&#125;&#125;)</option>
+                    <option value="ASSIGNED_USER">Contact&apos;s Assigned Owner (Dynamic &#123;&#123;assigned_user&#125;&#125;)</option>
                     <option value="CUSTOM">Custom Sender Name & Email</option>
                   </select>
                 </div>

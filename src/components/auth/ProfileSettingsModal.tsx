@@ -29,16 +29,16 @@ interface ProfileSettingsModalProps {
 export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalProps) {
   const { currentUser, organization, updateUserProfile } = useFlowDesk();
 
-  if (!currentUser || !organization) return null;
-
-  const [name, setName] = useState(currentUser.name);
-  const [phone, setPhone] = useState(currentUser.phone || "");
+  const [name, setName] = useState(currentUser?.name || "");
+  const [phone, setPhone] = useState(currentUser?.phone || "");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  if (!currentUser || !organization) return null;
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();

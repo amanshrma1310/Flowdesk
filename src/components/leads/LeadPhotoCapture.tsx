@@ -67,19 +67,19 @@ export function LeadPhotoCapture({
     }
   }, [currentPhotoUrl]);
 
-  // Clean up camera stream when unmounted or exiting camera mode
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
-
   const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
   };
+
+  // Clean up camera stream when unmounted or exiting camera mode
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
 
   const startCamera = async (targetFacing = facingMode) => {
     stopCamera();
