@@ -35,18 +35,12 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
   const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
-    // Fetch form configuration from server API
-    fetch(`/api/v1/agencies`)
+    // Fetch form configuration from secure, sanitized endpoint
+    fetch(`/api/v1/forms/${formId}`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.agencies && Array.isArray(data.agencies)) {
-          for (const agency of data.agencies) {
-            const formMatch = agency.forms?.find((f: LeadForm) => f.id === formId);
-            if (formMatch) {
-              setTargetForm(formMatch);
-              return;
-            }
-          }
+        if (data.success && data.form) {
+          setTargetForm(data.form);
         }
       })
       .catch(() => {})
@@ -203,6 +197,17 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
         ) : (
           /* LIVE LEAD CAPTURE FORM */
           <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
+            {/* Invisible bot trap honeypot field */}
+            <div style={{ display: "none", position: "absolute", left: "-9999px" }} aria-hidden="true">
+              <input
+                type="text"
+                name="website_hp"
+                tabIndex={-1}
+                autoComplete="off"
+                value={formData.website_hp || ""}
+                onChange={(e) => setFormData({ ...formData, website_hp: e.target.value })}
+              />
+            </div>
             {targetForm.fields.map((field) => (
               <div key={field.id}>
                 <label className="font-semibold text-slate-300 block mb-1 text-[11px]">

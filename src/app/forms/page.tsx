@@ -220,6 +220,9 @@ export default function FormsPage() {
     return `<!-- FlowDesk Lead Capture Form -->
 <div id="flowdesk-form-container-${form.id}" style="max-width: 480px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b;">
   <form id="flowdesk-form-${form.id}" action="${baseUrl}/api/v1/forms/${form.id}/submit" method="POST">
+    <div style="display:none; position:absolute; left:-9999px;" aria-hidden="true">
+      <input type="text" name="website_hp" tabindex="-1" autocomplete="off" />
+    </div>
 ${hiddenRedirect}${fieldsHtml}
     <button type="submit" style="width:100%; padding:12px; background:#4f46e5; color:#ffffff; font-weight:600; font-size:14px; border:none; border-radius:8px; cursor:pointer; transition:background 0.2s;">
       ${form.submitButtonText || "Submit Inquiry"}

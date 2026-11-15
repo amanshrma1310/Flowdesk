@@ -1,7 +1,36 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async headers() {
+    return [
+      {
+        // Apply global security headers across all routes
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-XSS-Protection", value: "1; mode=block" },
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains; preload" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), browsing-topics=()" },
+        ],
+      },
+      {
+        // Anti-Clickjacking: Protect CRM & Dashboard from being embedded in malicious iframes
+        source: "/((?!forms/public|api).*)",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+        ],
+      },
+      {
+        // Public form embeds: allow external customer websites to embed form in <iframe>
+        source: "/forms/public/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors *" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

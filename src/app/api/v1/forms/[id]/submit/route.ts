@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findFormAcrossAgencies, saveServerAgency, addLeadToServer, getAllAgencies } from "@/lib/serverStore";
+import { findFormAcrossAgencies, addLeadToServer, getAllAgencies } from "@/lib/serverStore";
 import { runWorkflowOnLead } from "@/lib/workflowEngine";
 import { Lead, LeadStatus } from "@/lib/types";
+import { checkRateLimit } from "@/lib/security/rateLimiter";
+import {
+  sanitizeText,
+  sanitizeEmail,
+  sanitizePhone,
+  sanitizeUrl,
+  isHoneypotTriggered,
+} from "@/lib/security/sanitizer";
 
 function getPublicBaseUrl(req: NextRequest): string {
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
@@ -39,8 +47,26 @@ export async function OPTIONS() {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    let data: Record<string, any> = {};
 
+    // 1. Rate Limiting: 30 requests per 5 minutes per IP
+    const rateLimit = checkRateLimit(req, "form_submit", 30, 300_000);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many submission attempts. Please wait a few moments before trying again.",
+        },
+        {
+          status: 429,
+          headers: {
+            ...CORS_HEADERS,
+            "Retry-After": String(Math.ceil(rateLimit.resetMs / 1000)),
+          },
+        }
+      );
+    }
+
+    let data: Record<string, any> = {};
     const contentType = req.headers.get("content-type") || "";
     const acceptHeader = req.headers.get("accept") || "";
     const isAjax = contentType.includes("application/json") || acceptHeader.includes("application/json");
@@ -55,12 +81,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       data = Object.fromEntries(formData.entries());
     }
 
-    const leadName = data.name || data.fullName || data["Full Name"] || "Web Prospect";
-    const leadPhone = data.phone || data.whatsApp || data["Phone Number"] || data["WhatsApp Number"] || "";
-    const leadEmail = data.email || data.workEmail || data["Email Address"] || "";
-    const leadCompany = data.company || data.businessName || data["Company Name"] || "";
-    const leadNotes = data.notes || data.message || data.requirement || "";
-    const redirectUrl = data.redirectUrl || data["redirect_url"] || "";
+    // 2. Honeypot Bot Trap: Reject spambots silently or with standard success
+    if (isHoneypotTriggered(data)) {
+      console.warn(`[Security Alert] Honeypot trap triggered from IP: ${rateLimit.ip}`);
+      if (isAjax) {
+        return NextResponse.json(
+          { success: true, message: "Thank you for your submission." },
+          { headers: CORS_HEADERS }
+        );
+      }
+      return new NextResponse("Thank you! Your inquiry has been received.", {
+        status: 200,
+        headers: { "Content-Type": "text/plain", ...CORS_HEADERS },
+      });
+    }
+
+    // 3. Strict Input Sanitization & XSS Neutralization
+    const rawName = data.name || data.fullName || data["Full Name"] || "";
+    const rawPhone = data.phone || data.whatsApp || data["Phone Number"] || data["WhatsApp Number"] || "";
+    const rawEmail = data.email || data.workEmail || data["Email Address"] || "";
+    const rawCompany = data.company || data.businessName || data["Company Name"] || "";
+    const rawNotes = data.notes || data.message || data.requirement || "";
+    const rawRedirectUrl = data.redirectUrl || data["redirect_url"] || "";
+
+    const leadName = sanitizeText(rawName, 100) || "Web Prospect";
+    const { cleanEmail: leadEmail } = sanitizeEmail(rawEmail);
+    const leadPhone = sanitizePhone(rawPhone);
+    const leadCompany = sanitizeText(rawCompany, 120);
+    const leadNotes = sanitizeText(rawNotes, 3000);
+    const sanitizedRedirect = sanitizeUrl(rawRedirectUrl);
 
     const baseUrl = getPublicBaseUrl(req);
 
@@ -75,11 +124,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
-    // Extract any extra custom form fields
+    // 4. Extract & Sanitize custom form fields (max 25 fields)
     const customFields: Record<string, string> = {};
+    const STANDARD_KEYS = new Set([
+      "name", "fullName", "Full Name",
+      "phone", "whatsApp", "Phone Number", "WhatsApp Number",
+      "email", "workEmail", "Email Address",
+      "company", "businessName", "Company Name",
+      "notes", "message", "requirement",
+      "redirectUrl", "redirect_url",
+    ]);
+
+    let customCount = 0;
     for (const [key, val] of Object.entries(data)) {
-      if (!["name", "fullName", "Full Name", "phone", "whatsApp", "Phone Number", "WhatsApp Number", "email", "workEmail", "Email Address", "company", "businessName", "notes", "message", "redirectUrl", "redirect_url"].includes(key)) {
-        customFields[key] = String(val);
+      if (customCount >= 25) break;
+      if (!STANDARD_KEYS.has(key)) {
+        const cleanKey = sanitizeText(key, 50);
+        const cleanVal = sanitizeText(String(val), 500);
+        if (cleanKey && cleanVal) {
+          customFields[cleanKey] = cleanVal;
+          customCount++;
+        }
       }
     }
 
@@ -90,7 +155,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Look up the agency and form in shared server store
     const formMatch = findFormAcrossAgencies(id);
     let targetAgency = formMatch?.agency;
-    let targetForm = formMatch?.form;
+    const targetForm = formMatch?.form;
 
     if (!targetAgency) {
       const agencies = getAllAgencies();
@@ -129,7 +194,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           timestamp: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
           action: `Lead Captured via Web Form: ${targetForm?.title || id}`,
           channel: "System",
-          details: `Submitted online from ${req.headers.get("referer") || "Website"}.${leadNotes ? ` Notes: ${leadNotes}` : ""}${customSummary ? ` [Custom Fields: ${customSummary}]` : ""}`,
+          details: `Submitted online securely from IP ${rateLimit.ip}.${leadNotes ? ` Notes: ${leadNotes}` : ""}${customSummary ? ` [Custom Fields: ${customSummary}]` : ""}`,
           actor: "Web Form Ingestion",
         },
       ],
@@ -182,7 +247,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     addLeadToServer(newLead, id);
 
     // Response handling
-    const finalRedirectUrl = redirectUrl || targetForm?.redirectUrl;
+    const configuredRedirect = targetForm?.redirectUrl ? sanitizeUrl(targetForm.redirectUrl) : null;
+    const finalRedirectUrl = sanitizedRedirect || configuredRedirect;
 
     if (isAjax) {
       return NextResponse.json(
@@ -196,20 +262,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       );
     }
 
-    // If external redirect URL is configured, navigate visitor to it
-    if (finalRedirectUrl && finalRedirectUrl.startsWith("http")) {
+    // If external safe redirect URL is configured, navigate visitor to it
+    if (finalRedirectUrl && (finalRedirectUrl.startsWith("http://") || finalRedirectUrl.startsWith("https://"))) {
       return NextResponse.redirect(finalRedirectUrl, { status: 303 });
     }
 
     // Otherwise render a clean, self-contained Thank You confirmation page
-    const referer = req.headers.get("referer") || "";
+    const rawReferer = req.headers.get("referer") || "";
+    const safeReferer = sanitizeUrl(rawReferer);
     const successTitle = "Thank You!";
     const successMsg = targetForm?.successMessage || "We have received your inquiry. Our team will contact you shortly.";
-    const hasReferer = referer && !referer.includes("/api/v1/forms");
+    const hasReferer = !!safeReferer && !safeReferer.includes("/api/v1/forms");
 
-    const safeSuccessTitle = successTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const safeSuccessMsg = successMsg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const safeReferer = referer.replace(/"/g, "&quot;");
+    const safeSuccessTitle = sanitizeText(successTitle, 100);
+    const safeSuccessMsg = sanitizeText(successMsg, 500);
 
     const thankYouHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -319,7 +385,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (err: any) {
     console.error("Form Ingestion Error:", err);
     return NextResponse.json(
-      { success: false, error: err.message || "Submission failed" },
+      { success: false, error: "Submission processing failed" },
       { status: 500, headers: CORS_HEADERS }
     );
   }

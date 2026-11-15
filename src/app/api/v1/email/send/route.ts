@@ -1,8 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import nodemailer from "nodemailer";
+import { checkRateLimit } from "@/lib/security/rateLimiter";
+import { sanitizeEmail, sanitizeText } from "@/lib/security/sanitizer";
 
 export async function POST(req: NextRequest) {
   try {
+    // 1. Rate Limiting: 25 email dispatches per minute per IP
+    const rateLimit = checkRateLimit(req, "email_send", 25, 60_000);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Rate limit exceeded. Please wait a moment before sending more emails.",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil(rateLimit.resetMs / 1000)),
+          },
+        }
+      );
+    }
+
     const body = await req.json();
     const { smtpSettings, to, subject, text, html } = body;
 
@@ -13,12 +32,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!to || !subject || !text) {
+    if (!to || !subject || (!text && !html)) {
       return NextResponse.json(
-        { success: false, error: "Recipient email (to), subject, and body text are required." },
+        { success: false, error: "Recipient email (to), subject, and body text/html are required." },
         { status: 400 }
       );
     }
+
+    // 2. Validate & Sanitize Recipient Email (Blocks CRLF injection)
+    const { cleanEmail: cleanTo, isValid: isToValid } = sanitizeEmail(to);
+    if (!isToValid) {
+      return NextResponse.json(
+        { success: false, error: `Invalid recipient email address: "${to}"` },
+        { status: 400 }
+      );
+    }
+
+    // 3. Sanitize Subject & From fields against SMTP Header Injection
+    const cleanSubject = sanitizeText(subject, 200);
+    if (!cleanSubject) {
+      return NextResponse.json(
+        { success: false, error: "Subject must not be empty after sanitization." },
+        { status: 400 }
+      );
+    }
+
+    const cleanFromName = sanitizeText(smtpSettings.fromName || "FlowDesk", 80);
+    const rawFromEmail = smtpSettings.fromEmail || smtpSettings.username;
+    const { cleanEmail: cleanFromEmail } = sanitizeEmail(rawFromEmail);
+
+    // Limit body sizes to prevent memory exhaustion
+    const cleanText = text ? String(text).slice(0, 100_000) : "";
+    const cleanHtml = html ? String(html).slice(0, 150_000) : cleanText.replace(/\n/g, "<br/>");
 
     const portNumber = parseInt(String(smtpSettings.port || "587"), 10);
     const isSecure = portNumber === 465 || smtpSettings.encryption === "SSL";
@@ -39,24 +84,21 @@ export async function POST(req: NextRequest) {
       greetingTimeout: 10000,
     });
 
-    // Format From address
-    const fromName = smtpSettings.fromName?.trim() || "FlowDesk Marketing";
-    const fromEmail = smtpSettings.fromEmail?.trim() || smtpSettings.username.trim();
-    const fromHeader = `"${fromName}" <${fromEmail}>`;
+    const fromHeader = `"${cleanFromName}" <${cleanFromEmail || smtpSettings.username.trim()}>`;
 
     // Send Mail
     const info = await transporter.sendMail({
       from: fromHeader,
-      to: to.trim(),
-      subject: subject.trim(),
-      text: text.trim(),
-      html: html || text.replace(/\n/g, "<br/>"),
+      to: cleanTo,
+      subject: cleanSubject,
+      text: cleanText,
+      html: cleanHtml,
     });
 
     return NextResponse.json({
       success: true,
       messageId: info.messageId,
-      message: `Email successfully delivered to ${to}! Message ID: ${info.messageId}`,
+      message: `Email successfully delivered to ${cleanTo}!`,
       accepted: info.accepted,
     });
   } catch (error: any) {
